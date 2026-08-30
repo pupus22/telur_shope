@@ -1,4 +1,17 @@
-# Shopee Order · Pembayaran · Pencairan v1.5
+# Shopee Payout Web v1.7
+
+Hotfix untuk error GitHub Pages `Cannot read properties of null (reading addEventListener)`.
+
+## Perubahan v1.7
+
+Halaman **Siap Dicairkan** sekarang dipatenkan menggunakan **Tanggal Order** sebagai satu-satunya dasar filter periode. Tidak ada lagi dropdown pilihan Tanggal Dana Dilepas / Tanggal Order. Kolom Tanggal Dana Dilepas tetap tampil sebagai informasi dari Income. Batch baru selalu menyimpan `dateBasis: order`.
+
+## Deploy
+Upload **semua file** dari folder ini bersamaan: `index.html`, `app.js`, `styles.css`. Jangan hanya mengganti satu file. Setelah GitHub Pages selesai deploy, lakukan hard refresh (`Ctrl+F5`).
+
+Database tetap menggunakan IndexedDB browser. Hotfix ini juga membedakan error database dari error antarmuka.
+
+# Shopee Order · Pembayaran · Pencairan v1.7
 
 Web uji lokal untuk menggabungkan snapshot Excel Order dan Income Shopee, menyimpan master di IndexedDB browser, serta membuat Batch Pencairan tanpa mencairkan No. Pesanan yang sama dua kali.
 
@@ -12,7 +25,7 @@ Web uji lokal untuk menggabungkan snapshot Excel Order dan Income Shopee, menyim
 - **ORDER / file Order**: penyaringan dimulai dari Master Order. Tanggal memakai Tanggal Order. Produk berasal langsung dari `Nama Produk` pada Order. Hasil No. Pesanan kemudian dicocokkan ke Income.
 - **INCOME / file Income**: penyaringan dimulai dari Master Income. Tanggal memakai Tanggal Dana Dilepas. Filter produk tidak digunakan karena kolom produk tidak berasal dari file Income.
 
-## Baru di v1.5 — pilihan produk centang
+## Baru di v1.6 — pilihan produk centang
 - Filter produk tidak lagi diketik manual.
 - Nama produk dimuat otomatis dan persis dari kolom `Nama Produk` pada Master Order.
 - Tersedia checkbox untuk memilih satu atau beberapa produk sekaligus.
@@ -24,3 +37,11 @@ Web uji lokal untuk menggabungkan snapshot Excel Order dan Income Shopee, menyim
 
 ## Penyimpanan
 Versi uji menyimpan master di IndexedDB browser. File Excel asli tidak disimpan. Untuk pemakaian lintas perangkat, database sebaiknya dipindahkan ke Firebase.
+
+
+## Perubahan v1.6
+- Halaman Siap Dicairkan tidak lagi memilih sumber file ORDER/INCOME.
+- Order dan Income selalu diperlakukan sebagai data gabungan berdasarkan No. Pesanan.
+- Filter tanggal hanya memilih acuan: Tanggal Dana Dilepas atau Tanggal Order.
+- Filter produk selalu tersedia dari Master Order dan hasil tetap dicocokkan ke Income.
+- Tabel Siap Dicairkan selalu menampilkan data gabungan: produk, variasi, tanggal order, tanggal dana dilepas, nominal pembayaran, dan status pencairan.

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#2563eb">
   <title>Order, Pembayaran & Pencairan Shopee</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=1.7">
 </head>
 <body>
   <div class="app-shell">
@@ -28,7 +28,7 @@
         <button class="nav-btn" data-view="settings">Backup & Data</button>
       </nav>
       <div class="sidebar-note">
-        <strong>Versi uji lokal v1.5</strong>
+        <strong>Versi uji lokal v1.7</strong>
         <span>Data tersimpan di browser ini menggunakan IndexedDB.</span>
       </div>
     </aside>
@@ -167,17 +167,16 @@
 
       <section id="view-ready" class="view">
         <article class="card">
-          <div class="card-head"><div><h2>Siap Dicairkan</h2><p>Pembayaran sudah masuk saldo Shopee, tetapi belum pernah masuk Batch Pencairan Anda. Pilih sumber pencarian: ORDER menyaring data dari file Order, sedangkan INCOME menyaring data dari file Income.</p></div></div>
-          <div class="filters five">
-            <label>Sumber pencarian<select id="readyDateBasis"><option value="income">INCOME · File Income</option><option value="order">ORDER · File Order</option></select></label>
-            <label id="readyFromLabel">Tanggal dana dilepas dari<input id="readyFrom" type="date"></label>
-            <label id="readyToLabel">Sampai<input id="readyTo" type="date"></label>
-            <label>Cari No. Pesanan<input id="readySearch" type="search" placeholder="No pesanan"></label>
+          <div class="card-head"><div><h2>Siap Dicairkan</h2><p>Order dan Income sudah digabung berdasarkan No. Pesanan. Filter periode pada halaman ini selalu berdasarkan <b>Tanggal Order</b>; Tanggal Dana Dilepas tetap ditampilkan sebagai informasi dari Income.</p></div></div>
+          <div class="filters four">
+            <label>Tanggal Order Dari<input id="readyFrom" type="date"></label>
+            <label>Tanggal Order Sampai<input id="readyTo" type="date"></label>
+            <label>Cari<input id="readySearch" type="search" placeholder="No pesanan / produk / variasi"></label>
             <div class="filter-action"><button id="resetReadyFilter" class="btn ghost">Reset Filter</button></div>
           </div>
           <div class="product-picker" id="readyProductBox">
             <div class="product-picker-head">
-              <div><strong>Produk yang ingin dicairkan <span class="muted">(khusus sumber ORDER)</span></strong><span>Produk dimuat otomatis dari Master Order. Centang produk yang ingin dimasukkan ke hasil pencarian dan Batch.</span></div>
+              <div><strong>Produk yang ingin dicairkan</strong><span>Daftar produk dimuat otomatis dari Master Order. Centang satu atau beberapa produk; hasil tetap dicocokkan dengan Income berdasarkan No. Pesanan.</span></div>
               <div class="product-picker-actions"><button id="readyProductAll" type="button" class="btn ghost small">Pilih Semua</button><button id="readyProductNone" type="button" class="btn ghost small">Kosongkan</button></div>
             </div>
             <div id="readyProductChoices" class="product-check-grid"></div>
@@ -188,7 +187,7 @@
             <button id="createBatchBtn" class="btn success">Buat Batch Pencairan</button>
           </div>
           <div id="readySearchNote" class="message info">Hasil filter: 0 pesanan siap dicairkan.</div><div id="productFilterWarning" class="message warning" style="display:none"></div><div id="batchMessage" class="message info">Batch dibuat berdasarkan semua hasil filter yang sedang tampil. Setelah dibuat, setiap No. Pesanan akan diberi tanda Batch.</div>
-          <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Tanggal Order</th><th>Pembayaran Shopee</th><th class="num">Nominal Pembayaran</th><th>Aksi</th></tr></thead><tbody id="readyBody"></tbody></table></div>
+          <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Tanggal Order</th><th>Tanggal Dana Dilepas</th><th class="num">Pembayaran Shopee</th><th>Status Pencairan</th><th>Aksi</th></tr></thead><tbody id="readyBody"></tbody></table></div>
         </article>
       </section>
 
@@ -283,6 +282,6 @@
 
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script>if(!window.XLSX){document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\\/script>')}</script>
-  <script src="app.js"></script>
+  <script src="app.js?v=1.7"></script>
 </body>
 </html>

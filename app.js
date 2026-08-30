@@ -12,6 +12,13 @@
 
   const $ = (id) => document.getElementById(id);
   const $$ = (sel) => [...document.querySelectorAll(sel)];
+  const APP_VERSION = '1.5.1';
+  function on(id, event, handler){
+    const el = $(id);
+    if(!el){ console.warn(`[${APP_VERSION}] Elemen #${id} tidak ditemukan. Kemungkinan index.html dan app.js berbeda versi.`); return false; }
+    el.addEventListener(event, handler);
+    return true;
+  }
   const money = (n) => new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(Number(n)||0);
   const localDateTime = (iso) => iso ? new Intl.DateTimeFormat('id-ID',{dateStyle:'medium',timeStyle:'short'}).format(new Date(iso)) : '-';
   const esc = (s) => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
@@ -305,66 +312,46 @@
     const lines=groups.get(income.orderNo)||[];
     return lines[0]?.orderDate||income.orderCreatedDate||'';
   }
-  function readySource(){
-    const v=$('readyDateBasis').value;
-    // compatibility with v1.3 saved/old control values
-    return v==='released' ? 'income' : v;
-  }
   function currentReady(){
-    const groups=orderGroups(), source=readySource(), from=$('readyFrom').value,to=$('readyTo').value,products=productSelection('ready'),q=$('readySearch').value.trim().toLowerCase();
-
-    if(source==='order'){
-      // ORDER mode: filter benar-benar dimulai dari file/master Order.
-      // No. Pesanan boleh muncul berkali-kali; hasil akhirnya adalah No. Pesanan unik.
-      const matchedOrderNos=new Set();
-      for(const line of cache.orders){
-        const d=line.orderDate||'';
-        if(from && (!d||d<from)) continue;
-        if(to && (!d||d>to)) continue;
-        if(!productLineMatchesSelection(line,products)) continue;
-        if(q && !String(line.orderNo||'').toLowerCase().includes(q) && !String(line.product||'').toLowerCase().includes(q) && !String(line.variation||'').toLowerCase().includes(q)) continue;
-        matchedOrderNos.add(line.orderNo);
-      }
-      return cache.incomes
-        .filter(x=>!x.batchId && matchedOrderNos.has(x.orderNo))
-        .sort((a,b)=>readyOrderDate(b,groups).localeCompare(readyOrderDate(a,groups))||b.orderNo.localeCompare(a.orderNo));
-    }
-
-    // INCOME mode: filter dimulai dan hanya disaring dari file/master Income.
+    const groups=orderGroups(), from=$('readyFrom').value,to=$('readyTo').value,products=productSelection('ready'),q=$('readySearch').value.trim().toLowerCase();
     return cache.incomes.filter(x=>!x.batchId).filter(x=>{
-      const d=x.releasedDate||'';
+      const lines=groups.get(x.orderNo)||[];
+      const d=readyOrderDate(x,groups);
       if(from && (!d||d<from)) return false;
       if(to && (!d||d>to)) return false;
-      if(q && !String(x.orderNo).toLowerCase().includes(q)) return false;
+      if(!productLinesMatchSelection(lines,products)) return false;
+      if(q){
+        const hay=[x.orderNo,...lines.flatMap(line=>[line.product,line.variation,line.status]),readyOrderDate(x,groups),x.releasedDate].join(' ').toLowerCase();
+        if(!hay.includes(q)) return false;
+      }
       return true;
-    }).sort((a,b)=>(b.releasedDate||'').localeCompare(a.releasedDate||'')||b.orderNo.localeCompare(a.orderNo));
+    }).sort((a,b)=>{
+      const da=readyOrderDate(a,groups)||'';
+      const db=readyOrderDate(b,groups)||'';
+      return db.localeCompare(da)||b.orderNo.localeCompare(a.orderNo);
+    });
   }
   function renderReady(){
-    const rows=currentReady(), groups=orderGroups(), total=rows.reduce((s,x)=>s+x.amount,0), source=readySource();
-    const sourceLabel=source==='order'?'ORDER / file Order':'INCOME / file Income';
-    const picker=$('readyProductBox');
-    const pickerDisabled=source!=='order';
-    picker.classList.toggle('is-disabled',pickerDisabled);
-    $$(`.ready-product-check`).forEach(x=>x.disabled=pickerDisabled);
-    $('readyProductAll').disabled=pickerDisabled; $('readyProductNone').disabled=pickerDisabled;
-    $('readyFromLabel').childNodes[0].nodeValue=source==='order'?'Tanggal order dari':'Tanggal dana dilepas dari';
-    $('readyToLabel').childNodes[0].nodeValue=source==='order'?'Tanggal order sampai':'Tanggal dana dilepas sampai';
-    const selection=source==='order'?productSelection('ready'):null;
-    const selectedSummary=source==='order'?productSelectionSummary('ready'):'Tidak digunakan pada sumber INCOME';
-    const mixed=source==='order' ? rows.filter(x=>productMixInfo(groups.get(x.orderNo)||[],selection).mixed) : [];
+    const rows=currentReady(), groups=orderGroups(), total=rows.reduce((s,x)=>s+x.amount,0);
+    const basisLabel='Tanggal Order';
+    const selection=productSelection('ready');
+    const selectedSummary=productSelectionSummary('ready');
+    const mixed=rows.filter(x=>productMixInfo(groups.get(x.orderNo)||[],selection).mixed);
     $('readyCount').textContent=rows.length; $('readyAmount').textContent=money(total); $('createBatchBtn').disabled=!rows.length;
-    setMessage('readySearchNote',`Sumber ${sourceLabel}: ${rows.length} No. Pesanan yang sudah memiliki Pembayaran Shopee dan belum dicairkan · total ${money(total)} · Produk: ${selectedSummary}.`,'info');
+    setMessage('readySearchNote',`${rows.length} No. Pesanan siap dicairkan · total ${money(total)} · Acuan tanggal: ${basisLabel} · Produk: ${selectedSummary}. Data yang tampil adalah hasil gabungan Order + Income.`,'info');
     const warning=$('productFilterWarning');
-    if(source==='order' && selection!==null && selection.size && mixed.length){
+    if(selection!==null && selection.size && mixed.length){
       warning.style.display='block';
       warning.textContent=`Perhatian: ${mixed.length} pesanan berisi produk yang Anda centang sekaligus produk lain dalam No. Pesanan yang sama. Karena Income hanya satu nominal per No. Pesanan, seluruh nominal pesanan tersebut ikut batch.`;
-    }else if(source==='order' && selection!==null && !selection.size){
+    }else if(selection!==null && !selection.size){
       warning.style.display='block'; warning.textContent='Belum ada produk yang dicentang. Pilih minimal satu produk atau tekan “Pilih Semua”.';
     }else{ warning.style.display='none'; warning.textContent=''; }
-    $('readyBody').innerHTML=rows.length?rows.map(x=>{const lines=groups.get(x.orderNo)||[], mix=source==='order'?productMixInfo(lines,selection):{mixed:false};return `<tr><td><b>${esc(x.orderNo)}</b>${mix.mixed?'<br><span class="badge pending">Pesanan campuran</span>':''}</td><td>${productHtml(lines)}</td><td>${esc(lines[0]?.orderDate||x.orderCreatedDate||'-')}</td><td>${esc(x.releasedDate||'-')}</td><td class="num"><b>${money(x.amount)}</b></td><td><button class="btn ghost edit-order-ready" data-order="${esc(x.orderNo)}">Edit</button></td></tr>`}).join(''):'<tr><td colspan="6" class="muted">Tidak ada pembayaran yang siap dicairkan pada filter ini.</td></tr>';
+    $('readyBody').innerHTML=rows.length?rows.map(x=>{
+      const lines=groups.get(x.orderNo)||[], mix=productMixInfo(lines,selection);
+      return `<tr><td><b>${esc(x.orderNo)}</b>${mix.mixed?'<br><span class="badge pending">Pesanan campuran</span>':''}</td><td>${productHtml(lines)}</td><td>${esc(readyOrderDate(x,groups)||'-')}</td><td>${esc(x.releasedDate||'-')}</td><td class="num"><b>${money(x.amount)}</b></td><td><span class="badge ready">Belum Dicairkan</span></td><td><button class="btn ghost edit-order-ready" data-order="${esc(x.orderNo)}">Edit</button></td></tr>`;
+    }).join(''):'<tr><td colspan="7" class="muted">Tidak ada pembayaran yang siap dicairkan pada filter ini.</td></tr>';
     $$('.edit-order-ready').forEach(b=>b.addEventListener('click',()=>showEditOrder(b.dataset.order)));
   }
-
 
 
   function nextBatchId(){
@@ -372,18 +359,19 @@
   }
   async function makeBatch(){
     const rows=currentReady(); if(!rows.length)return;
-    const batchId=nextBatchId(), total=rows.reduce((s,x)=>s+x.amount,0), groups=orderGroups(), source=readySource();
-    const products=source==='order'?productSelection('ready'):null;
-    const selectedProducts=source==='order'?(products===null?productNames():[...products]):[];
-    const productSummary=source==='order'?productSelectionSummary('ready'):'Tidak digunakan';
-    const sourceLabel=source==='order'?'ORDER / file Order':'INCOME / file Income';
-    const mixed=source==='order'?rows.filter(x=>productMixInfo(groups.get(x.orderNo)||[],products).mixed):[];
-    $('dialogTitle').textContent='Konfirmasi Batch Pencairan'; $('dialogContent').innerHTML=`<p>Pesanan yang masuk batch akan dikunci agar tidak ikut pencairan berikutnya.</p><div class="dialog-summary"><div><span>ID Batch</span><strong>${esc(batchId)}</strong></div><div><span>Jumlah Pesanan</span><strong>${rows.length}</strong></div><div><span>Total Nominal</span><strong>${money(total)}</strong></div><div><span>Sumber Pencarian</span><strong>${esc(sourceLabel)}</strong></div><div><span>Periode Filter</span><strong>${esc($('readyFrom').value||'Semua')} – ${esc($('readyTo').value||'Semua')}</strong></div><div><span>Filter Produk</span><strong>${esc(productSummary)}</strong></div><div><span>Pesanan Campuran</span><strong>${mixed.length}</strong></div></div>${mixed.length?`<div class="message warning">${mixed.length} pesanan memiliki produk yang dicentang dan produk lain dalam No. Pesanan yang sama. Seluruh nominal Income pesanan tersebut akan ikut batch.</div>`:''}`;
+    const batchId=nextBatchId(), total=rows.reduce((s,x)=>s+x.amount,0), groups=orderGroups();
+    const products=productSelection('ready');
+    const selectedProducts=products===null?productNames():[...products];
+    const productSummary=productSelectionSummary('ready');
+    const basisLabel='Tanggal Order';
+    const mixed=rows.filter(x=>productMixInfo(groups.get(x.orderNo)||[],products).mixed);
+    $('dialogTitle').textContent='Konfirmasi Batch Pencairan'; $('dialogContent').innerHTML=`<p>Pesanan yang masuk batch akan dikunci agar tidak ikut pencairan berikutnya.</p><div class="dialog-summary"><div><span>ID Batch</span><strong>${esc(batchId)}</strong></div><div><span>Jumlah Pesanan</span><strong>${rows.length}</strong></div><div><span>Total Nominal</span><strong>${money(total)}</strong></div><div><span>Acuan Tanggal</span><strong>${esc(basisLabel)}</strong></div><div><span>Periode Filter</span><strong>${esc($('readyFrom').value||'Semua')} – ${esc($('readyTo').value||'Semua')}</strong></div><div><span>Filter Produk</span><strong>${esc(productSummary)}</strong></div><div><span>Pesanan Campuran</span><strong>${mixed.length}</strong></div></div>${mixed.length?`<div class="message warning">${mixed.length} pesanan memiliki produk yang dicentang dan produk lain dalam No. Pesanan yang sama. Seluruh nominal Income pesanan tersebut akan ikut batch.</div>`:''}`;
     const dlg=$('confirmDialog'); dlg.showModal(); const result=await new Promise(resolve=>{const fn=()=>{dlg.removeEventListener('close',fn);resolve(dlg.returnValue)};dlg.addEventListener('close',fn)}); if(result!=='confirm')return;
     const createdAt=new Date().toISOString();
-    const batch={batchId,createdAt,status:'active',count:rows.length,totalSnapshot:total,filterSnapshot:{source:source,dateBasis:source==='order'?'order':'released',dateFrom:$('readyFrom').value||'',dateTo:$('readyTo').value||'',products:selectedProducts,productSummary:productSummary,search:$('readySearch').value.trim()||''},items:rows.map(x=>({orderNo:x.orderNo,amountSnapshot:x.amount,releasedDate:x.releasedDate,orderDate:readyOrderDate(x,groups)}))};
+    const batch={batchId,createdAt,status:'active',count:rows.length,totalSnapshot:total,filterSnapshot:{dateBasis:'order',dateFrom:$('readyFrom').value||'',dateTo:$('readyTo').value||'',products:selectedProducts,productSummary:productSummary,search:$('readySearch').value.trim()||''},items:rows.map(x=>({orderNo:x.orderNo,amountSnapshot:x.amount,releasedDate:x.releasedDate,orderDate:readyOrderDate(x,groups)}))};
     const upd=rows.map(x=>({...x,batchId,lastBatchAt:createdAt})); await putMany(STORES.batches,[batch]); await putMany(STORES.incomes,upd); await reloadCache(); renderAll(); setMessage('batchMessage',`${batchId} berhasil dibuat: ${rows.length} pesanan, total ${money(total)}. Semua No. Pesanan tersebut sekarang bertanda SUDAH DICAIRKAN dan tidak akan masuk batch berikutnya.`,'success');
   }
+
 
   function renderHistory(){
     $('batchHistoryBody').innerHTML=cache.batches.length?cache.batches.map(b=>`<tr><td><b>${esc(b.batchId)}</b></td><td>${esc(localDateTime(b.createdAt))}</td><td>${b.status==='active'?'<span class="badge done">Aktif</span>':'<span class="badge cancelled">Dibatalkan</span>'}</td><td>${b.count}</td><td class="num">${money(b.totalSnapshot)}</td><td><button class="btn ghost detail-batch" data-id="${esc(b.batchId)}">Detail</button>${b.status==='active'?` <button class="btn ghost cancel-batch" data-id="${esc(b.batchId)}">Batalkan</button>`:''}</td></tr>`).join(''):'<tr><td colspan="6" class="muted">Belum ada Batch Pencairan.</td></tr>';
@@ -391,11 +379,15 @@
   }
   function showBatch(id){
     const b=cache.batches.find(x=>x.batchId===id); if(!b)return; $('detailTitle').textContent=b.batchId;
-    const fs=b.filterSnapshot||{}, source=(fs.source||(fs.dateBasis==='order'?'order':'income')), sourceLabel=source==='order'?'ORDER / file Order':'INCOME / file Income';
+    const fs=b.filterSnapshot||{};
+    // kompatibilitas batch versi lama: source=income dianggap Tanggal Dana Dilepas
+    const basis=fs.dateBasis || (fs.source==='order'?'order':'released');
+    const basisLabel=basis==='order'?'Tanggal Order':'Tanggal Dana Dilepas';
     const periodFrom=fs.dateFrom||fs.releasedFrom||'Semua', periodTo=fs.dateTo||fs.releasedTo||'Semua';
-    $('detailSubtitle').textContent=`${b.status==='active'?'Aktif':'Dibatalkan'} · ${localDateTime(b.createdAt)} · ${b.count} pesanan · ${money(b.totalSnapshot)} · Sumber ${sourceLabel}: ${periodFrom} – ${periodTo}${(fs.productSummary||fs.product)?` · Produk ${fs.productSummary||fs.product}`:''}`;
+    $('detailSubtitle').textContent=`${b.status==='active'?'Aktif':'Dibatalkan'} · ${localDateTime(b.createdAt)} · ${b.count} pesanan · ${money(b.totalSnapshot)} · Acuan ${basisLabel}: ${periodFrom} – ${periodTo}${(fs.productSummary||fs.product)?` · Produk ${fs.productSummary||fs.product}`:''}`;
     $('detailBatchBody').innerHTML=b.items.map(x=>`<tr><td>${esc(x.orderNo)}</td><td>${esc(x.releasedDate||'-')}</td><td class="num">${money(x.amountSnapshot)}</td></tr>`).join(''); $('detailDialog').showModal();
   }
+
   async function cancelBatch(id){
     const b=cache.batches.find(x=>x.batchId===id); if(!b||b.status!=='active')return;
     $('dialogTitle').textContent='Batalkan Batch'; $('dialogContent').innerHTML=`<p>Batch <b>${esc(id)}</b> akan ditandai <b>DIBATALKAN</b>. No. Pesanan di dalamnya akan kembali menjadi Siap Dicairkan.</p><div class="dialog-summary"><div><span>Pesanan</span><strong>${b.count}</strong></div><div><span>Nominal Snapshot</span><strong>${money(b.totalSnapshot)}</strong></div></div>`;
@@ -503,17 +495,56 @@
   function switchView(name){ $$('.view').forEach(v=>v.classList.toggle('active',v.id===`view-${name}`)); $$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===name)); $('pageTitle').textContent=viewMeta[name][0]; $('pageSubtitle').textContent=viewMeta[name][1]; window.scrollTo({top:0,behavior:'smooth'}); }
 
   function bind(){
-    $$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view))); $$('[data-go]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.go)));
-    $('orderFile').addEventListener('change',()=>{$('orderFileName').textContent=$('orderFile').files[0]?.name||'Belum dipilih'}); $('incomeFile').addEventListener('change',()=>{$('incomeFileName').textContent=$('incomeFile').files[0]?.name||'Belum dipilih'});
-    $('clearFilesBtn').addEventListener('click',()=>{$('orderFile').value='';$('incomeFile').value='';$('orderFileName').textContent='Belum dipilih';$('incomeFileName').textContent='Belum dipilih';setMessage('importMessage','Pilihan file dikosongkan.','info')}); $('importBtn').addEventListener('click',importFiles);
-    ['reportReleaseFrom','reportReleaseTo','reportOrderFrom','reportOrderTo','reportPaymentStatus','reportPayoutStatus'].forEach(id=>$(id).addEventListener('change',renderReport)); $('reportSearch').addEventListener('input',renderReport); $('reportProductAll').addEventListener('click',()=>selectAllProducts('report')); $('reportProductNone').addEventListener('click',()=>clearAllProducts('report')); $('exportReportBtn').addEventListener('click',exportXlsxReport);
-    ['readyDateBasis','readyFrom','readyTo'].forEach(id=>$(id).addEventListener('change',renderReady)); $('readySearch').addEventListener('input',renderReady); $('readyProductAll').addEventListener('click',()=>selectAllProducts('ready')); $('readyProductNone').addEventListener('click',()=>clearAllProducts('ready')); $('resetReadyFilter').addEventListener('click',()=>{$('readyDateBasis').value='income';$('readyFrom').value='';$('readyTo').value='';$('readySearch').value='';productSelections.ready=null;renderProductChoices('ready');renderReady()}); $('createBatchBtn').addEventListener('click',makeBatch);
-    $('exportBatchBtn').addEventListener('click',exportBatchXlsx); $('closeEditBtn').addEventListener('click',()=>{$('editDialog').close();editingOrderNo=null}); $('saveEditBtn').addEventListener('click',saveEditOrder); $('deleteMasterBtn').addEventListener('click',deleteEditedOrder); $('exportBackupBtn').addEventListener('click',exportBackup); $('importBackupFile').addEventListener('change',e=>e.target.files[0]&&importBackup(e.target.files[0])); $('resetDbBtn').addEventListener('click',resetDb);
+    $$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));
+    $$('[data-go]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.go)));
+
+    on('orderFile','change',()=>{ const f=$('orderFile')?.files?.[0]; if($('orderFileName')) $('orderFileName').textContent=f?.name||'Belum dipilih'; });
+    on('incomeFile','change',()=>{ const f=$('incomeFile')?.files?.[0]; if($('incomeFileName')) $('incomeFileName').textContent=f?.name||'Belum dipilih'; });
+    on('clearFilesBtn','click',()=>{ if($('orderFile')) $('orderFile').value=''; if($('incomeFile')) $('incomeFile').value=''; if($('orderFileName')) $('orderFileName').textContent='Belum dipilih'; if($('incomeFileName')) $('incomeFileName').textContent='Belum dipilih'; setMessage('importMessage','Pilihan file dikosongkan.','info'); });
+    on('importBtn','click',importFiles);
+
+    ['reportReleaseFrom','reportReleaseTo','reportOrderFrom','reportOrderTo','reportPaymentStatus','reportPayoutStatus'].forEach(id=>on(id,'change',renderReport));
+    on('reportSearch','input',renderReport);
+    on('reportProductAll','click',()=>selectAllProducts('report'));
+    on('reportProductNone','click',()=>clearAllProducts('report'));
+    on('exportReportBtn','click',exportXlsxReport);
+
+    ['readyFrom','readyTo'].forEach(id=>on(id,'change',renderReady));
+    on('readySearch','input',renderReady);
+    on('readyProductAll','click',()=>selectAllProducts('ready'));
+    on('readyProductNone','click',()=>clearAllProducts('ready'));
+    on('resetReadyFilter','click',()=>{ if($('readyFrom')) $('readyFrom').value=''; if($('readyTo')) $('readyTo').value=''; if($('readySearch')) $('readySearch').value=''; productSelections.ready=null; renderProductChoices('ready'); renderReady(); });
+    on('createBatchBtn','click',makeBatch);
+
+    on('exportBatchBtn','click',exportBatchXlsx);
+    on('closeEditBtn','click',()=>{ $('editDialog')?.close(); editingOrderNo=null; });
+    on('saveEditBtn','click',saveEditOrder);
+    on('deleteMasterBtn','click',deleteEditedOrder);
+    on('exportBackupBtn','click',exportBackup);
+    on('importBackupFile','change',e=>e.target.files[0]&&importBackup(e.target.files[0]));
+    on('resetDbBtn','click',resetDb);
   }
 
   async function init(){
-    try{db=await openDb();bind();await reloadCache();renderAll();$('dbStatus').textContent=`Master: ${orderGroups().size} order · ${cache.incomes.length} pembayaran`;}
-    catch(e){console.error(e);$('dbStatus').textContent='Database gagal dibuka';alert('Database lokal gagal dibuka: '+e.message);}
+    try{
+      db=await openDb();
+    }catch(e){
+      console.error('IndexedDB gagal dibuka',e);
+      if($('dbStatus')) $('dbStatus').textContent='Database lokal gagal dibuka';
+      alert('Database lokal benar-benar gagal dibuka: '+(e?.message||e));
+      return;
+    }
+
+    try{
+      bind();
+      await reloadCache();
+      renderAll();
+      if($('dbStatus')) $('dbStatus').textContent=`Master: ${orderGroups().size} order · ${cache.incomes.length} pembayaran · v${APP_VERSION}`;
+    }catch(e){
+      console.error('Aplikasi gagal diinisialisasi',e);
+      if($('dbStatus')) $('dbStatus').textContent=`Aplikasi v${APP_VERSION} perlu refresh`;
+      alert('Antarmuka aplikasi gagal dimuat: '+(e?.message||e)+'\n\nCoba Ctrl+F5. Jika masih muncul, pastikan index.html dan app.js sama-sama dari paket v'+APP_VERSION+'.');
+    }
   }
   init();
 })();
