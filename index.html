@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#2563eb">
   <title>Order, Pembayaran & Pencairan Shopee</title>
-  <link rel="stylesheet" href="styles.css?v=1.7">
+  <link rel="stylesheet" href="styles.css?v=1.8">
 </head>
 <body>
   <div class="app-shell">
@@ -241,8 +241,8 @@
     </main>
   </div>
 
-  <dialog id="editDialog" class="dialog">
-    <div class="dialog-card wide">
+  <dialog id="editDialog" class="dialog dialog-fullscreen">
+    <div class="dialog-card edit-dialog-card">
       <div class="card-head"><div><h2>Edit Data Pesanan</h2><p>Semua perubahan disimpan ke master lokal dan dicatat pada log edit.</p></div><button id="closeEditBtn" type="button" class="btn ghost">Tutup</button></div>
       <div id="editMessage" class="message info">No. Pesanan dapat diubah. Relasi Order, Pembayaran, dan Batch akan ikut diperbarui.</div>
       <div class="edit-grid">
@@ -282,6 +282,6 @@
 
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script>if(!window.XLSX){document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\\/script>')}</script>
-  <script src="app.js?v=1.7"></script>
+  <script src="app.js?v=1.8"></script>
 </body>
 </html>

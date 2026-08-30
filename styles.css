@@ -13,3 +13,71 @@
 .product-picker{border:1px solid var(--line);border-radius:12px;padding:12px 13px;margin:0 0 14px;background:#fbfcff}.product-picker.is-disabled{opacity:.52;background:#f5f6f8}.product-picker-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.product-picker-head strong{display:block;font-size:13px}.product-picker-head span{display:block;margin-top:3px;color:var(--muted);font-size:12px}.product-picker-actions{display:flex;gap:7px;flex-wrap:wrap}.btn.small{min-height:34px;padding:6px 10px;font-size:12px}.product-check-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px;max-height:220px;overflow:auto}.product-check{display:flex;align-items:flex-start;gap:8px;border:1px solid var(--line);border-radius:9px;padding:9px 10px;background:#fff;cursor:pointer;min-width:0}.product-check input{margin:2px 0 0;flex:0 0 auto}.product-check span{font-size:12px;line-height:1.35;overflow-wrap:anywhere}.product-picker-empty{color:var(--muted);font-size:12px;padding:8px 2px}.product-picker.is-disabled .product-check{cursor:not-allowed}.product-picker.is-disabled button{pointer-events:none}
 @media(max-width:1100px){.product-check-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.product-picker-head{display:block}.product-picker-actions{margin-top:10px}.product-check-grid{grid-template-columns:1fr;max-height:280px}}
+
+
+/* v1.8 — editor pesanan full screen + dialog responsif */
+.dialog-fullscreen{
+  width:100vw;
+  max-width:none;
+  height:100vh;
+  max-height:none;
+  margin:0;
+  padding:0;
+}
+.dialog-fullscreen[open]{display:block;}
+.dialog-fullscreen .edit-dialog-card{
+  width:100%;
+  min-height:100%;
+  max-height:none;
+  border-radius:0;
+  box-shadow:none;
+  padding:24px clamp(18px,3vw,46px) 28px;
+  overflow:visible;
+}
+.dialog-fullscreen .edit-dialog-card>.card-head{
+  position:sticky;
+  top:0;
+  z-index:5;
+  background:#fff;
+  padding:4px 0 14px;
+  border-bottom:1px solid var(--line);
+}
+.dialog-fullscreen .edit-grid{
+  grid-template-columns:repeat(3,minmax(220px,1fr));
+  gap:14px;
+}
+.dialog-fullscreen .edit-lines{gap:12px;}
+.dialog-fullscreen .edit-line{
+  grid-template-columns:72px minmax(260px,2fr) minmax(220px,1.3fr) 110px;
+  gap:12px;
+  padding:14px;
+}
+.dialog-fullscreen .dialog-actions{
+  position:sticky;
+  bottom:0;
+  z-index:5;
+  background:#fff;
+  border-top:1px solid var(--line);
+  padding:14px 0 4px;
+  margin-top:20px;
+}
+/* Dialog biasa jangan pernah lebih lebar dari viewport. */
+.dialog:not(.dialog-fullscreen){max-width:min(760px,calc(100vw - 24px));}
+.dialog:not(.dialog-fullscreen) .dialog-card.wide{width:min(900px,calc(100vw - 64px));max-width:100%;}
+.dialog-card{overscroll-behavior:contain;}
+@media(max-width:900px){
+  .dialog-fullscreen .edit-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .dialog-fullscreen .edit-line{grid-template-columns:56px minmax(200px,1.7fr) minmax(160px,1.2fr) 90px;}
+}
+@media(max-width:760px){
+  .dialog{padding:8px;max-width:100%;}
+  .dialog-card,.dialog-card.wide{width:100%;max-width:100%;border-radius:12px;padding:16px;}
+  .dialog-fullscreen{padding:0;}
+  .dialog-fullscreen .edit-dialog-card{padding:14px 12px 18px;border-radius:0;}
+  .dialog-fullscreen .edit-grid{grid-template-columns:1fr;}
+  .dialog-fullscreen .edit-line{grid-template-columns:1fr;}
+  .dialog-fullscreen .edit-line-no{padding:0;}
+  .dialog-fullscreen .dialog-actions{display:grid;grid-template-columns:1fr;}
+  .dialog-fullscreen .dialog-actions .btn{width:100%;}
+  .dialog-fullscreen .edit-dialog-card>.card-head{align-items:center;}
+}

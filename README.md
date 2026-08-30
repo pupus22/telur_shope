@@ -1,8 +1,8 @@
-# Shopee Payout Web v1.7
+# Shopee Payout Web v1.8
 
 Hotfix untuk error GitHub Pages `Cannot read properties of null (reading addEventListener)`.
 
-## Perubahan v1.7
+## Perubahan v1.8
 
 Halaman **Siap Dicairkan** sekarang dipatenkan menggunakan **Tanggal Order** sebagai satu-satunya dasar filter periode. Tidak ada lagi dropdown pilihan Tanggal Dana Dilepas / Tanggal Order. Kolom Tanggal Dana Dilepas tetap tampil sebagai informasi dari Income. Batch baru selalu menyimpan `dateBasis: order`.
 
@@ -11,7 +11,7 @@ Upload **semua file** dari folder ini bersamaan: `index.html`, `app.js`, `styles
 
 Database tetap menggunakan IndexedDB browser. Hotfix ini juga membedakan error database dari error antarmuka.
 
-# Shopee Order · Pembayaran · Pencairan v1.7
+# Shopee Order · Pembayaran · Pencairan v1.8
 
 Web uji lokal untuk menggabungkan snapshot Excel Order dan Income Shopee, menyimpan master di IndexedDB browser, serta membuat Batch Pencairan tanpa mencairkan No. Pesanan yang sama dua kali.
 
@@ -45,3 +45,11 @@ Versi uji menyimpan master di IndexedDB browser. File Excel asli tidak disimpan.
 - Filter tanggal hanya memilih acuan: Tanggal Dana Dilepas atau Tanggal Order.
 - Filter produk selalu tersedia dari Master Order dan hasil tetap dicocokkan ke Income.
 - Tabel Siap Dicairkan selalu menampilkan data gabungan: produk, variasi, tanggal order, tanggal dana dilepas, nominal pembayaran, dan status pencairan.
+
+
+## Perubahan v1.8
+- Editor **Edit Data Pesanan** dibuat full-screen agar semua kolom dan detail produk lega.
+- Tombol Simpan/Hapus tetap terlihat di bagian bawah saat isi editor panjang.
+- Dialog lain dibatasi agar tidak melebar keluar viewport.
+- Responsif HP diperbaiki: field editor dan detail produk menjadi satu kolom.
+- Sinkronisasi versi `index.html`, `app.js`, dan `styles.css` dipatenkan ke v1.8.
