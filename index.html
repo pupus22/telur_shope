@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#2563eb">
   <title>Order, Pembayaran & Pencairan Shopee</title>
-  <link rel="stylesheet" href="styles.css?v=1.9.1">
+  <link rel="stylesheet" href="styles.css?v=1.9.2">
 </head>
 <body>
   <div id="authGate" class="auth-gate">
@@ -43,7 +43,7 @@
         <button class="nav-btn" data-view="settings">Backup & Data</button>
       </nav>
       <div class="sidebar-note">
-        <strong>Firebase v1.9.1</strong>
+        <strong>Firebase v1.9.2</strong>
         <span>Master tersimpan online di Cloud Firestore.</span>
       </div>
     </aside>
@@ -290,15 +290,15 @@
     </form>
   </dialog>
 
-  <dialog id="detailDialog" class="dialog">
-    <form method="dialog" class="dialog-card wide">
-      <div class="card-head"><div><h2 id="detailTitle">Detail Batch</h2><p id="detailSubtitle"></p></div><button value="close" class="btn ghost">Tutup</button></div>
-      <div class="table-wrap"><table><thead><tr><th>No. Pesanan</th><th>Tgl Pembayaran Shopee</th><th class="num">Nominal Saat Dicairkan</th></tr></thead><tbody id="detailBatchBody"></tbody></table></div>
+  <dialog id="detailDialog" class="dialog dialog-batch-detail">
+    <form method="dialog" class="dialog-card batch-detail-card">
+      <div class="card-head batch-detail-head"><div><h2 id="detailTitle">Detail Batch</h2><p id="detailSubtitle"></p></div><button value="close" class="btn ghost">Tutup</button></div>
+      <div class="table-wrap batch-detail-table-wrap"><table class="batch-detail-table"><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Tgl Order</th><th>Tgl Pembayaran Shopee</th><th class="num">Nominal Saat Dicairkan</th></tr></thead><tbody id="detailBatchBody"></tbody></table></div>
     </form>
   </dialog>
 
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script>if(!window.XLSX){document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\\/script>')}</script>
-  <script type="module" src="app.js?v=1.9.1"></script>
+  <script type="module" src="app.js?v=1.9.2"></script>
 </body>
 </html>

@@ -440,7 +440,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     const dlg=$('confirmDialog'); dlg.showModal(); const result=await new Promise(resolve=>{const fn=()=>{dlg.removeEventListener('close',fn);resolve(dlg.returnValue)};dlg.addEventListener('close',fn)}); if(result!=='confirm')return;
     if(rows.length>300){ setMessage('batchMessage','Batch terlalu besar untuk satu transaksi aman. Persempit filter menjadi maksimal 300 pesanan per batch.','warning'); return; }
     const createdAt=new Date().toISOString();
-    const batch={batchId,createdAt,status:'active',count:rows.length,totalSnapshot:total,filterSnapshot:{dateBasis:'order',dateFrom:$('readyFrom').value||'',dateTo:$('readyTo').value||'',products:selectedProducts,productSummary:productSummary,search:$('readySearch').value.trim()||''},items:rows.map(x=>({orderNo:x.orderNo,amountSnapshot:x.amount,releasedDate:x.releasedDate,orderDate:readyOrderDate(x,groups)}))};
+    const batch={batchId,createdAt,status:'active',count:rows.length,totalSnapshot:total,filterSnapshot:{dateBasis:'order',dateFrom:$('readyFrom').value||'',dateTo:$('readyTo').value||'',products:selectedProducts,productSummary:productSummary,search:$('readySearch').value.trim()||''},items:rows.map(x=>({orderNo:x.orderNo,amountSnapshot:x.amount,releasedDate:x.releasedDate,orderDate:readyOrderDate(x,groups),productsSnapshot:(groups.get(x.orderNo)||[]).map(line=>({product:line.product||'',variation:line.variation||'',quantity:Number(line.quantity)||0}))}))};
     try{
       await runTransaction(db,async tx=>{
         const incomeRefs=rows.map(x=>doc(db,STORES.incomes,x.orderNo));
@@ -469,7 +469,13 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     const basisLabel=basis==='order'?'Tanggal Order':'Tanggal Dana Dilepas';
     const periodFrom=fs.dateFrom||fs.releasedFrom||'Semua', periodTo=fs.dateTo||fs.releasedTo||'Semua';
     $('detailSubtitle').textContent=`${b.status==='active'?'Aktif':'Dibatalkan'} · ${localDateTime(b.createdAt)} · ${b.count} pesanan · ${money(b.totalSnapshot)} · Acuan ${basisLabel}: ${periodFrom} – ${periodTo}${(fs.productSummary||fs.product)?` · Produk ${fs.productSummary||fs.product}`:''}`;
-    $('detailBatchBody').innerHTML=b.items.map(x=>`<tr><td>${esc(x.orderNo)}</td><td>${esc(x.releasedDate||'-')}</td><td class="num">${money(x.amountSnapshot)}</td></tr>`).join(''); $('detailDialog').showModal();
+    const groups=orderGroups();
+    $('detailBatchBody').innerHTML=(b.items||[]).map(x=>{
+      const lines=(Array.isArray(x.productsSnapshot)&&x.productsSnapshot.length)?x.productsSnapshot:(groups.get(x.orderNo)||[]);
+      const orderDate=x.orderDate || (groups.get(x.orderNo)?.[0]?.orderDate) || '-';
+      return `<tr><td class="batch-order-no"><b>${esc(x.orderNo)}</b>${lines.length>1?`<div class="muted batch-item-count">${lines.length} item dalam 1 pesanan</div>`:''}</td><td>${lines.length?productHtml(lines):'<span class="muted">Detail produk tidak ditemukan di Master Order</span>'}</td><td>${esc(orderDate)}</td><td>${esc(x.releasedDate||'-')}</td><td class="num"><b>${money(x.amountSnapshot)}</b></td></tr>`;
+    }).join('');
+    $('detailDialog').showModal();
   }
 
   async function cancelBatch(id){
@@ -489,7 +495,11 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
       let b={...b0,items:(b0.items||[]).map(x=>({...x}))};
       const before=JSON.stringify(b.items);
       b.items=b.items.filter(x=>x.orderNo!==oldOrderNo && x.orderNo!==newOrderNo);
-      if(b.batchId===newBatchId){ b.items.push({orderNo:newOrderNo,amountSnapshot:Number(amount)||0,releasedDate:releasedDate||''}); }
+      if(b.batchId===newBatchId){
+        const groups=orderGroups();
+        const lines=groups.get(newOrderNo)||[];
+        b.items.push({orderNo:newOrderNo,amountSnapshot:Number(amount)||0,releasedDate:releasedDate||'',orderDate:lines[0]?.orderDate||'',productsSnapshot:lines.map(line=>({product:line.product||'',variation:line.variation||'',quantity:Number(line.quantity)||0}))});
+      }
       if(JSON.stringify(b.items)!==before || b.batchId===oldBatchId || b.batchId===newBatchId){ changed.push(recalcBatch(b)); }
     }
     if(changed.length) await putMany(STORES.batches,changed);
@@ -569,7 +579,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     const wb=XLSX.utils.book_new(), ws=XLSX.utils.json_to_sheet(detail); XLSX.utils.book_append_sheet(wb,ws,'Laporan'); const sum=XLSX.utils.aoa_to_sheet([['Jumlah Pesanan',rows.length],['Total Penghasilan',rows.reduce((s,x)=>s+x.amount,0)]]); XLSX.utils.book_append_sheet(wb,sum,'Ringkasan'); XLSX.writeFile(wb,`Laporan_Pembayaran_Pencairan_${todayISO()}.xlsx`);
   }
   function exportBatchXlsx(){
-    if(!window.XLSX){alert('Library Excel belum tersedia.');return;} const rows=[]; cache.batches.forEach(b=>b.items.forEach(i=>rows.push({'ID Batch':b.batchId,'Status':b.status,'Dibuat':b.createdAt,'No. Pesanan':i.orderNo,'Tanggal Dana Dilepas':i.releasedDate,'Nominal Snapshot':i.amountSnapshot}))); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Riwayat Batch'); XLSX.writeFile(wb,`Riwayat_Batch_${todayISO()}.xlsx`);
+    if(!window.XLSX){alert('Library Excel belum tersedia.');return;} const rows=[]; const groups=orderGroups(); cache.batches.forEach(b=>b.items.forEach(i=>{const lines=(Array.isArray(i.productsSnapshot)&&i.productsSnapshot.length)?i.productsSnapshot:(groups.get(i.orderNo)||[]); rows.push({'ID Batch':b.batchId,'Status':b.status,'Dibuat':b.createdAt,'No. Pesanan':i.orderNo,'Produk / Variasi':lines.map(x=>`${x.product||'-'}${x.variation?` | ${x.variation}`:''}${x.quantity?` x${x.quantity}`:''}`).join(' ; '),'Tanggal Order':i.orderDate||lines[0]?.orderDate||'','Tanggal Dana Dilepas':i.releasedDate,'Nominal Snapshot':i.amountSnapshot});})); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Riwayat Batch'); XLSX.writeFile(wb,`Riwayat_Batch_${todayISO()}.xlsx`);
   }
 
   function downloadJson(name,obj){ const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000); }

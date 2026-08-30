@@ -1,4 +1,4 @@
-# Shopee Payout v1.9.1 Firebase
+# Shopee Payout v1.9.2 Firebase
 
 Versi ini menggunakan Firebase Authentication + Cloud Firestore sebagai database utama.
 
@@ -35,7 +35,15 @@ Versi ini menggunakan Firebase Authentication + Cloud Firestore sebagai database
 Firebase config pada aplikasi web memang dapat berada di client. Keamanan data ditentukan oleh Firebase Authentication + Firestore Security Rules, bukan dengan menyembunyikan `firebaseConfig`.
 
 
-## Hotfix v1.9.1
+## Hotfix v1.9.2
 - Memperbaiki login screen yang tetap mengambil ruang setelah login.
 - `authGate` dan `appShell` sekarang benar-benar saling eksklusif melalui `[hidden]{display:none!important}`.
-- Cache-busting CSS/JS dinaikkan ke v1.9.1.
+- Cache-busting CSS/JS dinaikkan ke v1.9.2.
+
+
+## Revisi v1.9.2
+- Detail Batch tetap popup/modal besar dan tidak terpotong pada desktop.
+- Detail Batch menampilkan Produk / Variasi untuk setiap No. Pesanan.
+- Satu No. Pesanan dengan beberapa item tetap tampil sebagai satu pesanan dengan semua item di bawahnya.
+- Batch baru menyimpan snapshot item produk saat pencairan dibuat; batch lama memakai Master Order sebagai fallback.
+- Export Riwayat Batch sekarang menyertakan produk/variasi dan tanggal order.

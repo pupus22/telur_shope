@@ -89,5 +89,75 @@
   .dialog-fullscreen .dialog-actions .btn{width:100%;}
 }
 
-/* Firebase v1.9.1 */
+/* Firebase v1.9.2 */
 .auth-gate{min-height:100vh;display:grid;place-items:center;padding:24px;background:#f5f7fb}.login-card{width:min(440px,100%);background:#fff;border:1px solid #dfe5ef;border-radius:18px;padding:26px;box-shadow:0 18px 55px rgba(15,23,42,.12)}.login-brand{margin-bottom:18px}.login-card h1{margin:0 0 8px;font-size:26px}.login-card>p{margin:0 0 20px;color:#64748b}.login-card label{display:grid;gap:7px;margin:13px 0;color:#475569;font-size:14px}.login-card input{width:100%;min-height:46px;border:1px solid #d7deea;border-radius:10px;padding:10px 12px;font:inherit}.login-card .btn{width:100%;margin-top:8px}.user-email{font-size:12px;color:#64748b;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}@media(max-width:720px){.user-email{display:none}.auth-gate{padding:14px}.login-card{padding:20px}}
+
+
+/* v1.9.2 — Detail Batch tetap popup besar, tidak terpotong, dan menampilkan item Order */
+.dialog-batch-detail{
+  width:min(1600px,96vw);
+  max-width:96vw;
+  height:auto;
+  max-height:94vh;
+  margin:auto;
+  padding:0;
+  overflow:visible;
+}
+.dialog-batch-detail[open]{display:block;}
+.dialog-batch-detail .batch-detail-card{
+  width:100%;
+  max-width:none;
+  height:min(900px,92vh);
+  max-height:92vh;
+  padding:0;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  border-radius:18px;
+}
+.dialog-batch-detail .batch-detail-head{
+  flex:0 0 auto;
+  margin:0;
+  padding:20px 22px 14px;
+  border-bottom:1px solid var(--line);
+  background:#fff;
+  align-items:flex-start;
+}
+.dialog-batch-detail .batch-detail-head>div{min-width:0;}
+.dialog-batch-detail .batch-detail-head p{overflow-wrap:anywhere;}
+.batch-detail-table-wrap{
+  flex:1 1 auto;
+  min-height:0;
+  width:100%;
+  overflow:auto;
+  border:0;
+  border-radius:0;
+}
+.batch-detail-table{
+  min-width:0;
+  width:100%;
+  table-layout:fixed;
+}
+.batch-detail-table th:nth-child(1),.batch-detail-table td:nth-child(1){width:17%;}
+.batch-detail-table th:nth-child(2),.batch-detail-table td:nth-child(2){width:39%;}
+.batch-detail-table th:nth-child(3),.batch-detail-table td:nth-child(3){width:12%;}
+.batch-detail-table th:nth-child(4),.batch-detail-table td:nth-child(4){width:14%;}
+.batch-detail-table th:nth-child(5),.batch-detail-table td:nth-child(5){width:18%;}
+.batch-detail-table th,.batch-detail-table td{overflow-wrap:anywhere;word-break:break-word;}
+.batch-detail-table .product-lines{min-width:0;}
+.batch-detail-table .product-line{display:grid;grid-template-columns:minmax(0,1fr);gap:2px;margin-bottom:5px;}
+.batch-detail-table .product-line:last-child{margin-bottom:0;}
+.batch-item-count{font-size:11px;margin-top:4px;}
+.batch-order-no{white-space:normal;}
+@media(max-width:900px){
+  .dialog-batch-detail{width:97vw;max-width:97vw;max-height:95vh;}
+  .dialog-batch-detail .batch-detail-card{height:93vh;max-height:93vh;}
+  .batch-detail-table{min-width:900px;table-layout:auto;}
+  .batch-detail-table th:nth-child(n),.batch-detail-table td:nth-child(n){width:auto;}
+}
+@media(max-width:760px){
+  .dialog-batch-detail{width:calc(100vw - 12px);max-width:calc(100vw - 12px);max-height:calc(100vh - 12px);}
+  .dialog-batch-detail .batch-detail-card{height:calc(100vh - 12px);max-height:calc(100vh - 12px);border-radius:14px;}
+  .dialog-batch-detail .batch-detail-head{padding:14px 12px 10px;}
+  .batch-detail-table{min-width:820px;}
+}
