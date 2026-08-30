@@ -1,21 +1,35 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
+import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
+
 (() => {
   'use strict';
 
-  const DB_NAME = 'shopee_payout_master_v1';
-  const DB_VERSION = 2;
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyDYc-6mcJK4NgMfjFL4Xyew2hSixYv51As",
+    authDomain: "shopee-payout-b62c3.firebaseapp.com",
+    projectId: "shopee-payout-b62c3",
+    storageBucket: "shopee-payout-b62c3.firebasestorage.app",
+    messagingSenderId: "472652935238",
+    appId: "1:472652935238:web:d49c26f38b471c5e69da47"
+  };
+  const ADMIN_UID = "ISAloBhuHVQwGKzwVLpOXKMcstn2";
+  const firebaseApp = initializeApp(FIREBASE_CONFIG);
+  const auth = getAuth(firebaseApp);
+  const db = getFirestore(firebaseApp);
   const STORES = { orders:'orders', incomes:'incomes', batches:'batches', uploads:'uploads', anomalies:'anomalies', edits:'edits' };
-  let db;
   let cache = { orders:[], incomes:[], batches:[], uploads:[], anomalies:[], edits:[] };
   let editingOrderNo = null;
-  // null = semua produk dipilih; Set kosong = tidak ada produk dipilih.
+  let appBound = false;
+  let dataLoaded = false;
   const productSelections = { report:null, ready:null };
 
   const $ = (id) => document.getElementById(id);
   const $$ = (sel) => [...document.querySelectorAll(sel)];
-  const APP_VERSION = '1.8.1';
+  const APP_VERSION = '1.9.0';
   function on(id, event, handler){
     const el = $(id);
-    if(!el){ console.warn(`[${APP_VERSION}] Elemen #${id} tidak ditemukan. Kemungkinan index.html dan app.js berbeda versi.`); return false; }
+    if(!el){ console.warn(`[${APP_VERSION}] Elemen #${id} tidak ditemukan.`); return false; }
     el.addEventListener(event, handler);
     return true;
   }
@@ -28,9 +42,9 @@
     if(v === null || v === undefined || v === '') return '';
     if(v instanceof Date && !isNaN(v)) return `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,'0')}-${String(v.getDate()).padStart(2,'0')}`;
     if(typeof v === 'number' && window.XLSX?.SSF?.parse_date_code){ const d=XLSX.SSF.parse_date_code(v); if(d) return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`; }
-    const s=String(v).trim();
-    let m=s.match(/^(\d{4})[-\/]([01]?\d)[-\/]([0-3]?\d)/); if(m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
-    m=s.match(/^([0-3]?\d)[-\/]([01]?\d)[-\/](\d{4})/); if(m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+    const str=String(v).trim();
+    let m=str.match(/^(\d{4})[-\/]([01]?\d)[-\/]([0-3]?\d)/); if(m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+    m=str.match(/^([0-3]?\d)[-\/]([01]?\d)[-\/](\d{4})/); if(m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
     return '';
   }
   function normalizeText(v){ return String(v ?? '').trim(); }
@@ -42,30 +56,84 @@
   function unique(arr){ return [...new Set(arr.filter(Boolean))]; }
   function uid(prefix='ID'){ return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2,8)}`; }
 
-  function openDb(){
-    return new Promise((resolve,reject)=>{
-      const req=indexedDB.open(DB_NAME,DB_VERSION);
-      req.onupgradeneeded=()=>{
-        const d=req.result;
-        if(!d.objectStoreNames.contains(STORES.orders)) d.createObjectStore(STORES.orders,{keyPath:'lineKey'});
-        if(!d.objectStoreNames.contains(STORES.incomes)) d.createObjectStore(STORES.incomes,{keyPath:'orderNo'});
-        if(!d.objectStoreNames.contains(STORES.batches)) d.createObjectStore(STORES.batches,{keyPath:'batchId'});
-        if(!d.objectStoreNames.contains(STORES.uploads)) d.createObjectStore(STORES.uploads,{keyPath:'uploadId'});
-        if(!d.objectStoreNames.contains(STORES.anomalies)) d.createObjectStore(STORES.anomalies,{keyPath:'id'});
-        if(!d.objectStoreNames.contains(STORES.edits)) d.createObjectStore(STORES.edits,{keyPath:'id'});
-      };
-      req.onsuccess=()=>resolve(req.result); req.onerror=()=>reject(req.error);
+  function assertAdmin(){
+    const user=auth.currentUser;
+    if(!user) throw new Error('Silakan login terlebih dahulu.');
+    if(user.uid!==ADMIN_UID) throw new Error('Akun ini tidak diizinkan mengakses database.');
+  }
+  function orderDocFromLines(orderNo, lines){
+    const first=lines[0]||{};
+    return {
+      orderNo,
+      status:first.status||'',
+      orderDate:first.orderDate||'',
+      orderDateTime:first.orderDateTime||'',
+      lastImportedAt:first.lastImportedAt||new Date().toISOString(),
+      lastManualEditAt:first.lastManualEditAt||null,
+      items:lines.map(x=>({
+        lineKey:x.lineKey||'', product:x.product||'', variation:x.variation||'', skuRef:x.skuRef||'',
+        quantity:Number(x.quantity)||0, productCount:Number(x.productCount)||0, subtotal:Number(x.subtotal)||0,
+        lastImportedAt:x.lastImportedAt||null, lastManualEditAt:x.lastManualEditAt||null
+      }))
+    };
+  }
+  function flattenOrderDoc(data, id){
+    const orderNo=data.orderNo||id;
+    const items=Array.isArray(data.items)?data.items:[];
+    return items.map((item,idx)=>({
+      lineKey:item.lineKey||`${orderNo}|item|${idx+1}`, orderNo, product:item.product||'', variation:item.variation||'', skuRef:item.skuRef||'',
+      status:data.status||'', orderDate:data.orderDate||'', orderDateTime:data.orderDateTime||'',
+      quantity:Number(item.quantity)||0, productCount:Number(item.productCount)||0, subtotal:Number(item.subtotal)||0,
+      lastImportedAt:item.lastImportedAt||data.lastImportedAt||null, lastManualEditAt:item.lastManualEditAt||data.lastManualEditAt||null
+    }));
+  }
+  async function getAll(store){
+    assertAdmin();
+    const snap=await getDocs(collection(db,store));
+    if(store===STORES.orders){
+      return snap.docs.flatMap(d=>flattenOrderDoc(d.data(),d.id));
+    }
+    return snap.docs.map(d=>({id:d.id,...d.data()})).map(x=>{
+      if(store===STORES.incomes && !x.orderNo) x.orderNo=x.id;
+      if(store===STORES.batches && !x.batchId) x.batchId=x.id;
+      if(store===STORES.uploads && !x.uploadId) x.uploadId=x.id;
+      return x;
     });
   }
-  function getAll(store){ return new Promise((res,rej)=>{ const r=db.transaction(store,'readonly').objectStore(store).getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error); }); }
-  function getOne(store,key){ return new Promise((res,rej)=>{ const r=db.transaction(store,'readonly').objectStore(store).get(key); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
-  function putMany(store,rows){
-    if(!rows.length) return Promise.resolve();
-    return new Promise((res,rej)=>{ const tx=db.transaction(store,'readwrite'), os=tx.objectStore(store); rows.forEach(x=>os.put(x)); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); });
+  async function putMany(store,rows){
+    if(!rows.length) return;
+    assertAdmin();
+    let docs=[];
+    if(store===STORES.orders){
+      const groups=new Map();
+      for(const row of rows){ if(!groups.has(row.orderNo))groups.set(row.orderNo,[]); groups.get(row.orderNo).push(row); }
+      docs=[...groups.entries()].map(([id,lines])=>({id,data:orderDocFromLines(id,lines)}));
+    }else{
+      const keyField=store===STORES.incomes?'orderNo':store===STORES.batches?'batchId':store===STORES.uploads?'uploadId':'id';
+      docs=rows.map(r=>({id:String(r[keyField]||r.id),data:{...r}}));
+    }
+    for(let i=0;i<docs.length;i+=400){
+      const wb=writeBatch(db);
+      for(const item of docs.slice(i,i+400)) wb.set(doc(db,store,item.id),item.data,{merge:true});
+      await wb.commit();
+    }
   }
-  function clearStore(store){ return new Promise((res,rej)=>{ const tx=db.transaction(store,'readwrite'); tx.objectStore(store).clear(); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }
-  function deleteOne(store,key){ return new Promise((res,rej)=>{ const tx=db.transaction(store,'readwrite'); tx.objectStore(store).delete(key); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }
-  function deleteMany(store,keys){ if(!keys.length)return Promise.resolve(); return new Promise((res,rej)=>{ const tx=db.transaction(store,'readwrite'),os=tx.objectStore(store); keys.forEach(k=>os.delete(k)); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }
+  async function clearStore(store){
+    assertAdmin();
+    const snap=await getDocs(collection(db,store));
+    const refs=snap.docs.map(d=>d.ref);
+    for(let i=0;i<refs.length;i+=400){ const wb=writeBatch(db); refs.slice(i,i+400).forEach(r=>wb.delete(r)); await wb.commit(); }
+  }
+  async function deleteOne(store,key){ assertAdmin(); await deleteDoc(doc(db,store,String(key))); }
+  async function deleteMany(store,keys){
+    if(!keys.length)return; assertAdmin();
+    if(store===STORES.orders){
+      const orderNos=unique(cache.orders.filter(x=>keys.includes(x.lineKey)).map(x=>x.orderNo));
+      for(const orderNo of orderNos) await deleteOne(store,orderNo);
+      return;
+    }
+    for(let i=0;i<keys.length;i+=400){ const wb=writeBatch(db); keys.slice(i,i+400).forEach(k=>wb.delete(doc(db,store,String(k)))); await wb.commit(); }
+  }
   async function reloadCache(){
     const [orders,incomes,batches,uploads,anomalies,edits]=await Promise.all(Object.values(STORES).map(getAll));
     cache={orders,incomes,batches,uploads,anomalies,edits};
@@ -271,7 +339,7 @@
 
     const dupGroups=[...groups.values()].filter(v=>v.length>1).length;
     const an=[
-      ['No. Pesanan ganda di Order',dupGroups],['Pembayaran tanpa Order',counts.incomeOnly],['Pembayaran berubah setelah Pencairan',cache.anomalies.filter(x=>x.type==='Pembayaran berubah setelah Pencairan').length],['Anomali tersimpan',cache.anomalies.length]
+      ['Pesanan multi-produk (normal)',dupGroups],['Pembayaran tanpa Order',counts.incomeOnly],['Pembayaran berubah setelah Pencairan',cache.anomalies.filter(x=>x.type==='Pembayaran berubah setelah Pencairan').length],['Anomali tersimpan',cache.anomalies.length]
     ];
     $('anomalyGrid').innerHTML=an.map(([a,b])=>`<div class="anomaly-box"><span>${esc(a)}</span><strong>${b}</strong></div>`).join('');
   }
@@ -298,7 +366,7 @@
     $('reportCount').textContent=rows.length; $('reportIncomeTotal').textContent=money(paidTotal); $('reportPendingCount').textContent=rows.filter(x=>x.status==='pending').length; $('reportReadyCount').textContent=ready.length; $('reportBatchedCount').textContent=batched.length;
     const productLabel=productSelectionSummary('report');
     setMessage('reportSearchNote',`Hasil pencarian/filter · ${productLabel}: ${rows.length} pesanan · Pembayaran Shopee ${money(paidTotal)} · Belum dicairkan ${money(readyTotal)} · Sudah dicairkan ${money(batchedTotal)}.`,'info');
-    $('reportBody').innerHTML=rows.length?rows.map(r=>`<tr><td><b>${esc(r.orderNo)}</b>${r.lines.length>1?`<br><span class="muted">${r.lines.length} baris produk</span>`:''}</td><td>${productHtml(r.lines)}</td><td>${esc(r.orderStatus||'-')}</td><td>${paymentBadge(r)}</td><td class="num">${r.income?money(r.amount):'-'}</td><td>${esc(r.orderDate||'-')}</td><td>${esc(r.releasedDate||'-')}</td><td>${payoutBadge(r)}</td><td><button class="btn ghost edit-order" data-order="${esc(r.orderNo)}">Edit</button></td></tr>`).join(''):'<tr><td colspan="9" class="muted">Tidak ada data sesuai filter.</td></tr>';
+    $('reportBody').innerHTML=rows.length?rows.map(r=>`<tr><td><b>${esc(r.orderNo)}</b>${r.lines.length>1?`<br><span class="muted">${r.lines.length} item dalam 1 pesanan</span>`:''}</td><td>${productHtml(r.lines)}</td><td>${esc(r.orderStatus||'-')}</td><td>${paymentBadge(r)}</td><td class="num">${r.income?money(r.amount):'-'}</td><td>${esc(r.orderDate||'-')}</td><td>${esc(r.releasedDate||'-')}</td><td>${payoutBadge(r)}</td><td><button class="btn ghost edit-order" data-order="${esc(r.orderNo)}">Edit</button></td></tr>`).join(''):'<tr><td colspan="9" class="muted">Tidak ada data sesuai filter.</td></tr>';
     $$('.edit-order').forEach(b=>b.addEventListener('click',()=>showEditOrder(b.dataset.order)));
   }
 
@@ -355,7 +423,10 @@
 
 
   function nextBatchId(){
-    const d=todayISO().replaceAll('-',''); const existing=cache.batches.filter(x=>x.batchId.startsWith(`BATCH-${d}-`)).length+1; return `BATCH-${d}-${String(existing).padStart(3,'0')}`;
+    const d=todayISO().replaceAll('-','');
+    const existing=cache.batches.filter(x=>x.batchId.startsWith(`BATCH-${d}-`)).length+1;
+    const suffix=Math.random().toString(36).slice(2,5).toUpperCase();
+    return `BATCH-${d}-${String(existing).padStart(3,'0')}-${suffix}`;
   }
   async function makeBatch(){
     const rows=currentReady(); if(!rows.length)return;
@@ -367,9 +438,22 @@
     const mixed=rows.filter(x=>productMixInfo(groups.get(x.orderNo)||[],products).mixed);
     $('dialogTitle').textContent='Konfirmasi Batch Pencairan'; $('dialogContent').innerHTML=`<p>Pesanan yang masuk batch akan dikunci agar tidak ikut pencairan berikutnya.</p><div class="dialog-summary"><div><span>ID Batch</span><strong>${esc(batchId)}</strong></div><div><span>Jumlah Pesanan</span><strong>${rows.length}</strong></div><div><span>Total Nominal</span><strong>${money(total)}</strong></div><div><span>Acuan Tanggal</span><strong>${esc(basisLabel)}</strong></div><div><span>Periode Filter</span><strong>${esc($('readyFrom').value||'Semua')} – ${esc($('readyTo').value||'Semua')}</strong></div><div><span>Filter Produk</span><strong>${esc(productSummary)}</strong></div><div><span>Pesanan Campuran</span><strong>${mixed.length}</strong></div></div>${mixed.length?`<div class="message warning">${mixed.length} pesanan memiliki produk yang dicentang dan produk lain dalam No. Pesanan yang sama. Seluruh nominal Income pesanan tersebut akan ikut batch.</div>`:''}`;
     const dlg=$('confirmDialog'); dlg.showModal(); const result=await new Promise(resolve=>{const fn=()=>{dlg.removeEventListener('close',fn);resolve(dlg.returnValue)};dlg.addEventListener('close',fn)}); if(result!=='confirm')return;
+    if(rows.length>300){ setMessage('batchMessage','Batch terlalu besar untuk satu transaksi aman. Persempit filter menjadi maksimal 300 pesanan per batch.','warning'); return; }
     const createdAt=new Date().toISOString();
     const batch={batchId,createdAt,status:'active',count:rows.length,totalSnapshot:total,filterSnapshot:{dateBasis:'order',dateFrom:$('readyFrom').value||'',dateTo:$('readyTo').value||'',products:selectedProducts,productSummary:productSummary,search:$('readySearch').value.trim()||''},items:rows.map(x=>({orderNo:x.orderNo,amountSnapshot:x.amount,releasedDate:x.releasedDate,orderDate:readyOrderDate(x,groups)}))};
-    const upd=rows.map(x=>({...x,batchId,lastBatchAt:createdAt})); await putMany(STORES.batches,[batch]); await putMany(STORES.incomes,upd); await reloadCache(); renderAll(); setMessage('batchMessage',`${batchId} berhasil dibuat: ${rows.length} pesanan, total ${money(total)}. Semua No. Pesanan tersebut sekarang bertanda SUDAH DICAIRKAN dan tidak akan masuk batch berikutnya.`,'success');
+    try{
+      await runTransaction(db,async tx=>{
+        const incomeRefs=rows.map(x=>doc(db,STORES.incomes,x.orderNo));
+        const snaps=[];
+        for(const ref of incomeRefs) snaps.push(await tx.get(ref));
+        const conflicts=[];
+        snaps.forEach((snap,i)=>{ if(!snap.exists()) conflicts.push(`${rows[i].orderNo} (Income hilang)`); else if(snap.data().batchId) conflicts.push(`${rows[i].orderNo} (${snap.data().batchId})`); });
+        if(conflicts.length) throw new Error(`Pencairan dibatalkan karena ${conflicts.length} pesanan sudah berubah/masuk batch: ${conflicts.slice(0,5).join(', ')}${conflicts.length>5?'…':''}`);
+        tx.set(doc(db,STORES.batches,batchId),batch);
+        snaps.forEach((snap,i)=>tx.update(incomeRefs[i],{batchId,lastBatchAt:createdAt}));
+      });
+      await reloadCache(); renderAll(); setMessage('batchMessage',`${batchId} berhasil dibuat: ${rows.length} pesanan, total ${money(total)}. Firestore mengunci No. Pesanan agar tidak dapat dicairkan ganda.`,'success');
+    }catch(err){ console.error(err); setMessage('batchMessage',err.message||String(err),'error'); }
   }
 
 
@@ -440,7 +524,13 @@
     const hasIncome=amountRaw!=='' || released!=='' || !!oldIncome;
     const amount=Math.max(0,Number(amountRaw)||0);
     if(oldIncome && newNo!==oldNo) await deleteOne(STORES.incomes,oldNo);
-    if(updatedLines.length) await putMany(STORES.orders,updatedLines);
+    let linesToSave=updatedLines;
+    if(newNo!==oldNo){
+      const targetExisting=cache.orders.filter(x=>x.orderNo===newNo);
+      linesToSave=[...targetExisting,...updatedLines.map((x,i)=>({...x,lineKey:x.lineKey.replace(oldNo,newNo)||`${newNo}|manual|${i+1}`}))];
+      await deleteOne(STORES.orders,oldNo);
+    }
+    if(linesToSave.length) await putMany(STORES.orders,linesToSave);
     if(hasIncome){
       const income={...(oldIncome||{}),orderNo:newNo,amount,releasedDate:released,orderCreatedDate:$('editOrderDate').value||oldIncome?.orderCreatedDate||'',batchId,lastManualEditAt:new Date().toISOString()};
       await putMany(STORES.incomes,[income]);
@@ -488,10 +578,10 @@
     try{const raw=JSON.parse(await file.text());if(!raw?.data)throw new Error('Format backup tidak valid.');for(const [k,store] of Object.entries(STORES)){await clearStore(store);await putMany(store,Array.isArray(raw.data[k])?raw.data[k]:[]);}await reloadCache();renderAll();setMessage('backupMessage','Backup berhasil dipulihkan.','success');}catch(e){setMessage('backupMessage',e.message||String(e),'error');}
   }
   async function resetDb(){
-    $('dialogTitle').textContent='Hapus Semua Data Lokal'; $('dialogContent').innerHTML='<p>Semua Order Master, Pembayaran Master, Batch Pencairan, riwayat upload, log edit, dan anomali pada browser ini akan dihapus. Tindakan ini tidak dapat dibatalkan kecuali Anda punya backup JSON.</p>'; const dlg=$('confirmDialog');dlg.showModal();const result=await new Promise(resolve=>{const fn=()=>{dlg.removeEventListener('close',fn);resolve(dlg.returnValue)};dlg.addEventListener('close',fn)});if(result!=='confirm')return;for(const s of Object.values(STORES))await clearStore(s);await reloadCache();renderAll();setMessage('backupMessage','Semua data lokal sudah dihapus.','warning');
+    $('dialogTitle').textContent='Hapus Semua Data Firebase'; $('dialogContent').innerHTML='<p>Semua Order Master, Pembayaran Master, Batch Pencairan, riwayat upload, log edit, dan anomali pada Firestore akan dihapus. Tindakan ini tidak dapat dibatalkan kecuali Anda punya backup JSON.</p>'; const dlg=$('confirmDialog');dlg.showModal();const result=await new Promise(resolve=>{const fn=()=>{dlg.removeEventListener('close',fn);resolve(dlg.returnValue)};dlg.addEventListener('close',fn)});if(result!=='confirm')return;for(const s of Object.values(STORES))await clearStore(s);await reloadCache();renderAll();setMessage('backupMessage','Semua data Firebase sudah dihapus.','warning');
   }
 
-  const viewMeta={dashboard:['Dashboard','Ringkasan Order, Pembayaran Shopee, dan Pencairan.'],upload:['Upload Data','Import snapshot Order dan Income terbaru ke master.'],report:['Laporan Gabungan','Pembayaran dan Pencairan dipisahkan, dengan total mengikuti filter/pencarian.'],pending:['Pending Pembayaran','Order yang belum ditemukan pada file pembayaran (Income).'],ready:['Siap Dicairkan','Pembayaran sudah masuk saldo Shopee tetapi belum masuk Batch Pencairan.'],history:['Riwayat Batch','Audit pencairan dan pembatalan batch.'],recon:['Rekonsiliasi','Pemeriksaan keseimbangan Pembayaran dan Pencairan.'],settings:['Backup & Data','Backup, restore, log edit, dan reset database lokal.']};
+  const viewMeta={dashboard:['Dashboard','Ringkasan Order, Pembayaran Shopee, dan Pencairan.'],upload:['Upload Data','Import snapshot Order dan Income terbaru ke master.'],report:['Laporan Gabungan','Pembayaran dan Pencairan dipisahkan, dengan total mengikuti filter/pencarian.'],pending:['Pending Pembayaran','Order yang belum ditemukan pada file pembayaran (Income).'],ready:['Siap Dicairkan','Pembayaran sudah masuk saldo Shopee tetapi belum masuk Batch Pencairan.'],history:['Riwayat Batch','Audit pencairan dan pembatalan batch.'],recon:['Rekonsiliasi','Pemeriksaan keseimbangan Pembayaran dan Pencairan.'],settings:['Backup & Data','Backup, restore, log edit, dan reset database Firebase.']};
   function switchView(name){ $$('.view').forEach(v=>v.classList.toggle('active',v.id===`view-${name}`)); $$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===name)); $('pageTitle').textContent=viewMeta[name][0]; $('pageSubtitle').textContent=viewMeta[name][1]; window.scrollTo({top:0,behavior:'smooth'}); }
 
   function bind(){
@@ -525,26 +615,54 @@
     on('resetDbBtn','click',resetDb);
   }
 
-  async function init(){
-    try{
-      db=await openDb();
-    }catch(e){
-      console.error('IndexedDB gagal dibuka',e);
-      if($('dbStatus')) $('dbStatus').textContent='Database lokal gagal dibuka';
-      alert('Database lokal benar-benar gagal dibuka: '+(e?.message||e));
+  function showLogin(message='Silakan masuk dengan akun admin Firebase.'){
+    if($('authGate')) $('authGate').hidden=false;
+    if($('appShell')) $('appShell').hidden=true;
+    if($('loginMessage')) setMessage('loginMessage',message,'info');
+  }
+  async function loadFirebaseData(user){
+    if(!user) return showLogin();
+    if(user.uid!==ADMIN_UID){
+      await signOut(auth);
+      showLogin('Akun ini bukan admin yang diizinkan oleh Firestore Rules.');
       return;
     }
-
+    if($('authGate')) $('authGate').hidden=true;
+    if($('appShell')) $('appShell').hidden=false;
+    if($('userEmail')) $('userEmail').textContent=user.email||user.uid;
+    if(!appBound){ bind(); appBound=true; }
     try{
-      bind();
+      if($('dbStatus')) $('dbStatus').textContent='Memuat Firestore…';
       await reloadCache();
       renderAll();
-      if($('dbStatus')) $('dbStatus').textContent=`Master: ${orderGroups().size} order · ${cache.incomes.length} pembayaran · v${APP_VERSION}`;
+      dataLoaded=true;
+      if($('dbStatus')) $('dbStatus').textContent=`Firebase: ${orderGroups().size} order · ${cache.incomes.length} pembayaran · v${APP_VERSION}`;
     }catch(e){
-      console.error('Aplikasi gagal diinisialisasi',e);
-      if($('dbStatus')) $('dbStatus').textContent=`Aplikasi v${APP_VERSION} perlu refresh`;
-      alert('Antarmuka aplikasi gagal dimuat: '+(e?.message||e)+'\n\nCoba Ctrl+F5. Jika masih muncul, pastikan index.html dan app.js sama-sama dari paket v'+APP_VERSION+'.');
+      console.error('Firestore gagal dimuat',e);
+      if($('dbStatus')) $('dbStatus').textContent='Firestore gagal dimuat';
+      alert('Firestore gagal dimuat: '+(e?.message||e)+'\n\nCek Firestore Rules, koneksi internet, dan Authorized domains.');
     }
   }
+  function initAuth(){
+    const form=$('loginForm');
+    if(form){
+      form.addEventListener('submit',async e=>{
+        e.preventDefault();
+        const email=$('loginEmail').value.trim(), password=$('loginPassword').value;
+        if(!email||!password){ setMessage('loginMessage','Email dan password wajib diisi.','warning'); return; }
+        $('loginBtn').disabled=true; setMessage('loginMessage','Memeriksa akun Firebase…','info');
+        try{
+          const cred=await signInWithEmailAndPassword(auth,email,password);
+          if(cred.user.uid!==ADMIN_UID){ await signOut(auth); throw new Error('Akun berhasil login tetapi UID bukan admin yang diizinkan.'); }
+          setMessage('loginMessage','Login berhasil. Memuat Firestore…','success');
+        }catch(err){ console.error(err); setMessage('loginMessage',err.message||String(err),'error'); }
+        finally{$('loginBtn').disabled=false;}
+      });
+    }
+    on('logoutBtn','click',async()=>{ await signOut(auth); cache={orders:[],incomes:[],batches:[],uploads:[],anomalies:[],edits:[]}; dataLoaded=false; });
+    onAuthStateChanged(auth,user=>{ if(user) loadFirebaseData(user); else showLogin(); });
+  }
+  function init(){ initAuth(); }
+
   init();
 })();

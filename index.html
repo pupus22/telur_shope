@@ -5,10 +5,25 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#2563eb">
   <title>Order, Pembayaran & Pencairan Shopee</title>
-  <link rel="stylesheet" href="styles.css?v=1.8.1">
+  <link rel="stylesheet" href="styles.css?v=1.9.0">
 </head>
 <body>
-  <div class="app-shell">
+  <div id="authGate" class="auth-gate">
+    <form id="loginForm" class="login-card">
+      <div class="brand login-brand">
+        <div class="brand-mark">SP</div>
+        <div><strong>Shopee Payout</strong><small>Database Firebase</small></div>
+      </div>
+      <h1>Login Admin</h1>
+      <p>Masuk dengan akun Email/Password yang sudah dibuat di Firebase Authentication.</p>
+      <label>Email<input id="loginEmail" type="email" autocomplete="username" required></label>
+      <label>Password<input id="loginPassword" type="password" autocomplete="current-password" required></label>
+      <button id="loginBtn" type="submit" class="btn primary">Masuk</button>
+      <div id="loginMessage" class="message info">Menunggu login.</div>
+    </form>
+  </div>
+
+  <div id="appShell" class="app-shell firebase-app" hidden>
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-mark">SP</div>
@@ -28,8 +43,8 @@
         <button class="nav-btn" data-view="settings">Backup & Data</button>
       </nav>
       <div class="sidebar-note">
-        <strong>Versi uji lokal v1.7</strong>
-        <span>Data tersimpan di browser ini menggunakan IndexedDB.</span>
+        <strong>Firebase v1.9</strong>
+        <span>Master tersimpan online di Cloud Firestore.</span>
       </div>
     </aside>
 
@@ -40,7 +55,9 @@
           <p id="pageSubtitle">Ringkasan Order, Pembayaran Shopee, dan Pencairan Anda.</p>
         </div>
         <div class="top-actions">
-          <span id="dbStatus" class="status-pill">Memuat database…</span>
+          <span id="dbStatus" class="status-pill">Menghubungkan Firebase…</span>
+          <span id="userEmail" class="user-email"></span>
+          <button id="logoutBtn" type="button" class="btn ghost small">Keluar</button>
         </div>
       </header>
 
@@ -225,7 +242,7 @@
         </article>
         <div class="grid-2">
           <article class="card">
-            <div class="card-head"><div><h2>Backup Database Lokal</h2><p>Gunakan sebelum pindah browser/PC. Backup berisi Order, Pembayaran, Batch Pencairan, riwayat upload, dan riwayat edit.</p></div></div>
+            <div class="card-head"><div><h2>Backup Database Firebase</h2><p>Backup JSON opsional untuk arsip tambahan. Data utama tetap tersimpan online di Firestore.</p></div></div>
             <div class="action-stack">
               <button id="exportBackupBtn" class="btn primary">Export Backup JSON</button>
               <label class="btn ghost file-button">Import Backup JSON<input id="importBackupFile" type="file" accept=".json"></label>
@@ -233,8 +250,8 @@
             <div id="backupMessage" class="message info">Belum ada tindakan.</div>
           </article>
           <article class="card danger-card">
-            <div class="card-head"><div><h2>Reset Data Uji</h2><p>Menghapus seluruh master dan riwayat dari browser ini.</p></div></div>
-            <button id="resetDbBtn" class="btn danger">Hapus Semua Data Lokal</button>
+            <div class="card-head"><div><h2>Reset Data Firebase</h2><p>Menghapus seluruh master dan riwayat Firestore. Gunakan hanya untuk data uji.</p></div></div>
+            <button id="resetDbBtn" class="btn danger">Hapus Semua Data Firebase</button>
           </article>
         </div>
       </section>
@@ -243,7 +260,7 @@
 
   <dialog id="editDialog" class="dialog dialog-fullscreen">
     <div class="dialog-card edit-dialog-card">
-      <div class="card-head"><div><h2>Edit Data Pesanan</h2><p>Semua perubahan disimpan ke master lokal dan dicatat pada log edit.</p></div><button id="closeEditBtn" type="button" class="btn ghost">Tutup</button></div>
+      <div class="card-head"><div><h2>Edit Data Pesanan</h2><p>Semua perubahan disimpan ke Firestore dan dicatat pada log edit.</p></div><button id="closeEditBtn" type="button" class="btn ghost">Tutup</button></div>
       <div id="editMessage" class="message info">No. Pesanan dapat diubah. Relasi Order, Pembayaran, dan Batch akan ikut diperbarui.</div>
       <div class="edit-grid">
         <label>No. Pesanan<input id="editOrderNo" type="text"></label>
@@ -282,6 +299,6 @@
 
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script>if(!window.XLSX){document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\\/script>')}</script>
-  <script src="app.js?v=1.8.1"></script>
+  <script type="module" src="app.js?v=1.9.0"></script>
 </body>
 </html>
