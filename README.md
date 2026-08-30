@@ -1,4 +1,4 @@
-# Shopee Payout v1.9 Firebase
+# Shopee Payout v1.9.1 Firebase
 
 Versi ini menggunakan Firebase Authentication + Cloud Firestore sebagai database utama.
 
@@ -33,3 +33,9 @@ Versi ini menggunakan Firebase Authentication + Cloud Firestore sebagai database
 
 ## Catatan
 Firebase config pada aplikasi web memang dapat berada di client. Keamanan data ditentukan oleh Firebase Authentication + Firestore Security Rules, bukan dengan menyembunyikan `firebaseConfig`.
+
+
+## Hotfix v1.9.1
+- Memperbaiki login screen yang tetap mengambil ruang setelah login.
+- `authGate` dan `appShell` sekarang benar-benar saling eksklusif melalui `[hidden]{display:none!important}`.
+- Cache-busting CSS/JS dinaikkan ke v1.9.1.
