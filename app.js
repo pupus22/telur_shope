@@ -197,6 +197,23 @@
     if(!lines.length) return '<span class="muted">Order detail tidak ditemukan</span>';
     return `<div class="product-lines">${lines.map(x=>`<div class="product-line"><b>${esc(x.product||'-')}</b><span class="muted">${esc(x.variation||'')}</span>${x.quantity?`<span class="muted">×${x.quantity}</span>`:''}</div>`).join('')}</div>`;
   }
+  function productQueryMatch(lines, query){
+    const q=normalizeText(query).toLowerCase();
+    if(!q) return true;
+    return lines.some(x=>String(x.product||'').toLowerCase().includes(q));
+  }
+  function productMixInfo(lines, query){
+    const q=normalizeText(query).toLowerCase();
+    if(!q || !lines.length) return {active:false,mixed:false,matched:lines.length,total:lines.length};
+    const matched=lines.filter(x=>String(x.product||'').toLowerCase().includes(q)).length;
+    return {active:true,mixed:matched>0 && matched<lines.length,matched,total:lines.length};
+  }
+  function populateProductSuggestions(){
+    const names=unique(cache.orders.map(x=>normalizeText(x.product))).sort((a,b)=>a.localeCompare(b,'id'));
+    const html=names.map(x=>`<option value="${esc(x)}"></option>`).join('');
+    const a=$('reportProductList'), b=$('readyProductList');
+    if(a) a.innerHTML=html; if(b) b.innerHTML=html;
+  }
   function paymentBadge(rec){
     return rec.income?'<span class="badge paid">Sudah Dibayar Shopee</span>':'<span class="badge pending">Belum Dibayar Shopee</span>';
   }
@@ -231,12 +248,13 @@
   }
 
   function reportFilter(rec){
-    const rf=$('reportReleaseFrom').value, rt=$('reportReleaseTo').value, of=$('reportOrderFrom').value, ot=$('reportOrderTo').value, ps=$('reportPaymentStatus').value, po=$('reportPayoutStatus').value, q=$('reportSearch').value.trim().toLowerCase();
+    const rf=$('reportReleaseFrom').value, rt=$('reportReleaseTo').value, of=$('reportOrderFrom').value, ot=$('reportOrderTo').value, ps=$('reportPaymentStatus').value, po=$('reportPayoutStatus').value, product=$('reportProduct').value.trim(), q=$('reportSearch').value.trim().toLowerCase();
     if(rf && (!rec.releasedDate || rec.releasedDate<rf))return false; if(rt && (!rec.releasedDate || rec.releasedDate>rt))return false;
     if(of && (!rec.orderDate || rec.orderDate<of))return false; if(ot && (!rec.orderDate || rec.orderDate>ot))return false;
     if(ps==='unpaid' && rec.income)return false; if(ps==='paid' && !rec.income)return false;
     if(po==='notYet' && (!rec.income || rec.income.batchId))return false; if(po==='batched' && (!rec.income || !rec.income.batchId))return false;
-    if(q){ const hay=[rec.orderNo,...rec.lines.flatMap(x=>[x.product,x.variation]),rec.orderStatus].join(' ').toLowerCase(); if(!hay.includes(q))return false; }
+    if(product && !productQueryMatch(rec.lines,product))return false;
+    if(q){ const hay=[rec.orderNo,...rec.lines.flatMap(x=>[x.variation]),rec.orderStatus].join(' ').toLowerCase(); if(!hay.includes(q))return false; }
     return true;
   }
   function currentReport(){return unionRecords().filter(reportFilter);}
@@ -245,7 +263,8 @@
     const paid=rows.filter(x=>x.income), ready=rows.filter(x=>x.status==='ready'), batched=rows.filter(x=>x.status==='batched');
     const paidTotal=paid.reduce((s,x)=>s+x.amount,0), readyTotal=ready.reduce((s,x)=>s+x.amount,0), batchedTotal=batched.reduce((s,x)=>s+x.amount,0);
     $('reportCount').textContent=rows.length; $('reportIncomeTotal').textContent=money(paidTotal); $('reportPendingCount').textContent=rows.filter(x=>x.status==='pending').length; $('reportReadyCount').textContent=ready.length; $('reportBatchedCount').textContent=batched.length;
-    setMessage('reportSearchNote',`Hasil pencarian/filter: ${rows.length} pesanan · Pembayaran Shopee ${money(paidTotal)} · Belum dicairkan ${money(readyTotal)} · Sudah dicairkan ${money(batchedTotal)}.`,'info');
+    const productLabel=$('reportProduct').value.trim();
+    setMessage('reportSearchNote',`Hasil pencarian/filter${productLabel?` produk “${productLabel}”`:''}: ${rows.length} pesanan · Pembayaran Shopee ${money(paidTotal)} · Belum dicairkan ${money(readyTotal)} · Sudah dicairkan ${money(batchedTotal)}.`,'info');
     $('reportBody').innerHTML=rows.length?rows.map(r=>`<tr><td><b>${esc(r.orderNo)}</b>${r.lines.length>1?`<br><span class="muted">${r.lines.length} baris produk</span>`:''}</td><td>${productHtml(r.lines)}</td><td>${esc(r.orderStatus||'-')}</td><td>${paymentBadge(r)}</td><td class="num">${r.income?money(r.amount):'-'}</td><td>${esc(r.orderDate||'-')}</td><td>${esc(r.releasedDate||'-')}</td><td>${payoutBadge(r)}</td><td><button class="btn ghost edit-order" data-order="${esc(r.orderNo)}">Edit</button></td></tr>`).join(''):'<tr><td colspan="9" class="muted">Tidak ada data sesuai filter.</td></tr>';
     $$('.edit-order').forEach(b=>b.addEventListener('click',()=>showEditOrder(b.dataset.order)));
   }
@@ -256,29 +275,55 @@
     $$('.edit-order-pending').forEach(b=>b.addEventListener('click',()=>showEditOrder(b.dataset.order)));
   }
 
+  function readyOrderDate(income,groups){
+    const lines=groups.get(income.orderNo)||[];
+    return lines[0]?.orderDate||income.orderCreatedDate||'';
+  }
   function currentReady(){
-    const groups=orderGroups(), from=$('readyFrom').value,to=$('readyTo').value,q=$('readySearch').value.trim().toLowerCase();
-    return cache.incomes.filter(x=>!x.batchId).filter(x=>!from||x.releasedDate>=from).filter(x=>!to||x.releasedDate<=to).filter(x=>{
-      if(!q)return true; const lines=groups.get(x.orderNo)||[]; return [x.orderNo,...lines.flatMap(r=>[r.product,r.variation])].join(' ').toLowerCase().includes(q);
-    }).sort((a,b)=>b.releasedDate.localeCompare(a.releasedDate)||b.orderNo.localeCompare(a.orderNo));
+    const groups=orderGroups(), basis=$('readyDateBasis').value, from=$('readyFrom').value,to=$('readyTo').value,product=$('readyProduct').value.trim(),q=$('readySearch').value.trim().toLowerCase();
+    return cache.incomes.filter(x=>!x.batchId).filter(x=>{
+      const dateValue=basis==='order'?readyOrderDate(x,groups):(x.releasedDate||'');
+      if(from && (!dateValue||dateValue<from)) return false;
+      if(to && (!dateValue||dateValue>to)) return false;
+      const lines=groups.get(x.orderNo)||[];
+      if(product && !productQueryMatch(lines,product)) return false;
+      if(q && !String(x.orderNo).toLowerCase().includes(q)) return false;
+      return true;
+    }).sort((a,b)=>{
+      const da=basis==='order'?readyOrderDate(a,groups):(a.releasedDate||'');
+      const db=basis==='order'?readyOrderDate(b,groups):(b.releasedDate||'');
+      return db.localeCompare(da)||b.orderNo.localeCompare(a.orderNo);
+    });
   }
   function renderReady(){
-    const rows=currentReady(), groups=orderGroups(), total=rows.reduce((s,x)=>s+x.amount,0); $('readyCount').textContent=rows.length; $('readyAmount').textContent=money(total); $('createBatchBtn').disabled=!rows.length;
-    setMessage('readySearchNote',`Hasil filter saat ini: ${rows.length} No. Pesanan · total pembayaran yang siap dicairkan ${money(total)}.`,'info');
-    $('readyBody').innerHTML=rows.length?rows.map(x=>{const lines=groups.get(x.orderNo)||[];return `<tr><td><b>${esc(x.orderNo)}</b></td><td>${productHtml(lines)}</td><td>${esc(lines[0]?.orderDate||x.orderCreatedDate||'-')}</td><td>${esc(x.releasedDate||'-')}</td><td class="num"><b>${money(x.amount)}</b></td><td><button class="btn ghost edit-order-ready" data-order="${esc(x.orderNo)}">Edit</button></td></tr>`}).join(''):'<tr><td colspan="6" class="muted">Tidak ada pembayaran yang siap dicairkan pada filter ini.</td></tr>';
+    const rows=currentReady(), groups=orderGroups(), total=rows.reduce((s,x)=>s+x.amount,0), product=$('readyProduct').value.trim(), basis=$('readyDateBasis').value;
+    const basisLabel=basis==='order'?'Tanggal Order':'Tanggal Dana Dilepas';
+    $('readyFromLabel').childNodes[0].nodeValue=basis==='order'?'Tanggal order dari':'Dana dilepas dari';
+    const mixed=product ? rows.filter(x=>productMixInfo(groups.get(x.orderNo)||[],product).mixed) : [];
+    $('readyCount').textContent=rows.length; $('readyAmount').textContent=money(total); $('createBatchBtn').disabled=!rows.length;
+    setMessage('readySearchNote',`Hasil filter berdasarkan ${basisLabel}${product?` · produk “${product}”`:''}: ${rows.length} No. Pesanan · total pembayaran yang siap dicairkan ${money(total)}.`,'info');
+    const warning=$('productFilterWarning');
+    if(product && mixed.length){
+      warning.style.display='block';
+      warning.textContent=`Perhatian: ${mixed.length} pesanan berisi produk yang cocok dengan filter “${product}” sekaligus produk lain. Karena Income hanya satu nominal per No. Pesanan, jika dibuat batch maka SELURUH nominal pesanan campuran ikut dicairkan.`;
+    }else{ warning.style.display='none'; warning.textContent=''; }
+    $('readyBody').innerHTML=rows.length?rows.map(x=>{const lines=groups.get(x.orderNo)||[], mix=productMixInfo(lines,product);return `<tr><td><b>${esc(x.orderNo)}</b>${mix.mixed?'<br><span class="badge pending">Pesanan campuran</span>':''}</td><td>${productHtml(lines)}</td><td>${esc(lines[0]?.orderDate||x.orderCreatedDate||'-')}</td><td>${esc(x.releasedDate||'-')}</td><td class="num"><b>${money(x.amount)}</b></td><td><button class="btn ghost edit-order-ready" data-order="${esc(x.orderNo)}">Edit</button></td></tr>`}).join(''):'<tr><td colspan="6" class="muted">Tidak ada pembayaran yang siap dicairkan pada filter ini.</td></tr>';
     $$('.edit-order-ready').forEach(b=>b.addEventListener('click',()=>showEditOrder(b.dataset.order)));
   }
+
 
   function nextBatchId(){
     const d=todayISO().replaceAll('-',''); const existing=cache.batches.filter(x=>x.batchId.startsWith(`BATCH-${d}-`)).length+1; return `BATCH-${d}-${String(existing).padStart(3,'0')}`;
   }
   async function makeBatch(){
     const rows=currentReady(); if(!rows.length)return;
-    const batchId=nextBatchId(), total=rows.reduce((s,x)=>s+x.amount,0);
-    $('dialogTitle').textContent='Konfirmasi Batch Pencairan'; $('dialogContent').innerHTML=`<p>Pesanan yang masuk batch akan dikunci agar tidak ikut pencairan berikutnya.</p><div class="dialog-summary"><div><span>ID Batch</span><strong>${esc(batchId)}</strong></div><div><span>Jumlah Pesanan</span><strong>${rows.length}</strong></div><div><span>Total Nominal</span><strong>${money(total)}</strong></div><div><span>Periode dana dilepas</span><strong>${esc($('readyFrom').value||'Semua')} – ${esc($('readyTo').value||'Semua')}</strong></div></div>`;
+    const batchId=nextBatchId(), total=rows.reduce((s,x)=>s+x.amount,0), product=$('readyProduct').value.trim(), groups=orderGroups(), basis=$('readyDateBasis').value;
+    const basisLabel=basis==='order'?'Tanggal Order':'Tanggal Dana Dilepas';
+    const mixed=product?rows.filter(x=>productMixInfo(groups.get(x.orderNo)||[],product).mixed):[];
+    $('dialogTitle').textContent='Konfirmasi Batch Pencairan'; $('dialogContent').innerHTML=`<p>Pesanan yang masuk batch akan dikunci agar tidak ikut pencairan berikutnya.</p><div class="dialog-summary"><div><span>ID Batch</span><strong>${esc(batchId)}</strong></div><div><span>Jumlah Pesanan</span><strong>${rows.length}</strong></div><div><span>Total Nominal</span><strong>${money(total)}</strong></div><div><span>Dasar Tanggal</span><strong>${esc(basisLabel)}</strong></div><div><span>Periode Filter</span><strong>${esc($('readyFrom').value||'Semua')} – ${esc($('readyTo').value||'Semua')}</strong></div><div><span>Filter Produk</span><strong>${esc(product||'Semua Produk')}</strong></div><div><span>Pesanan Campuran</span><strong>${mixed.length}</strong></div></div>${mixed.length?`<div class="message warning">${mixed.length} pesanan memiliki produk “${esc(product)}” dan produk lain dalam No. Pesanan yang sama. Seluruh nominal Income pesanan tersebut akan ikut batch.</div>`:''}`;
     const dlg=$('confirmDialog'); dlg.showModal(); const result=await new Promise(resolve=>{const fn=()=>{dlg.removeEventListener('close',fn);resolve(dlg.returnValue)};dlg.addEventListener('close',fn)}); if(result!=='confirm')return;
     const createdAt=new Date().toISOString();
-    const batch={batchId,createdAt,status:'active',count:rows.length,totalSnapshot:total,items:rows.map(x=>({orderNo:x.orderNo,amountSnapshot:x.amount,releasedDate:x.releasedDate}))};
+    const batch={batchId,createdAt,status:'active',count:rows.length,totalSnapshot:total,filterSnapshot:{dateBasis:basis,dateFrom:$('readyFrom').value||'',dateTo:$('readyTo').value||'',product:product||'',search:$('readySearch').value.trim()||''},items:rows.map(x=>({orderNo:x.orderNo,amountSnapshot:x.amount,releasedDate:x.releasedDate,orderDate:readyOrderDate(x,groups)}))};
     const upd=rows.map(x=>({...x,batchId,lastBatchAt:createdAt})); await putMany(STORES.batches,[batch]); await putMany(STORES.incomes,upd); await reloadCache(); renderAll(); setMessage('batchMessage',`${batchId} berhasil dibuat: ${rows.length} pesanan, total ${money(total)}. Semua No. Pesanan tersebut sekarang bertanda SUDAH DICAIRKAN dan tidak akan masuk batch berikutnya.`,'success');
   }
 
@@ -287,7 +332,10 @@
     $$('.detail-batch').forEach(x=>x.addEventListener('click',()=>showBatch(x.dataset.id))); $$('.cancel-batch').forEach(x=>x.addEventListener('click',()=>cancelBatch(x.dataset.id)));
   }
   function showBatch(id){
-    const b=cache.batches.find(x=>x.batchId===id); if(!b)return; $('detailTitle').textContent=b.batchId; $('detailSubtitle').textContent=`${b.status==='active'?'Aktif':'Dibatalkan'} · ${localDateTime(b.createdAt)} · ${b.count} pesanan · ${money(b.totalSnapshot)}`;
+    const b=cache.batches.find(x=>x.batchId===id); if(!b)return; $('detailTitle').textContent=b.batchId;
+    const fs=b.filterSnapshot||{}, basisLabel=fs.dateBasis==='order'?'Tanggal Order':'Tanggal Dana Dilepas';
+    const periodFrom=fs.dateFrom||fs.releasedFrom||'Semua', periodTo=fs.dateTo||fs.releasedTo||'Semua';
+    $('detailSubtitle').textContent=`${b.status==='active'?'Aktif':'Dibatalkan'} · ${localDateTime(b.createdAt)} · ${b.count} pesanan · ${money(b.totalSnapshot)} · Filter ${basisLabel}: ${periodFrom} – ${periodTo}`;
     $('detailBatchBody').innerHTML=b.items.map(x=>`<tr><td>${esc(x.orderNo)}</td><td>${esc(x.releasedDate||'-')}</td><td class="num">${money(x.amountSnapshot)}</td></tr>`).join(''); $('detailDialog').showModal();
   }
   async function cancelBatch(id){
@@ -370,7 +418,7 @@
   }
 
   function renderEditHistory(){ const body=$('editHistoryBody'); if(!body)return; body.innerHTML=cache.edits.length?cache.edits.slice(0,100).map(x=>`<tr><td>${esc(localDateTime(x.createdAt))}</td><td>${esc(x.orderNoBefore||'-')}</td><td>${esc(x.orderNoAfter||'-')}</td><td>${esc(x.description||'-')}</td></tr>`).join(''):'<tr><td colspan="4" class="muted">Belum ada edit manual.</td></tr>'; }
-  function renderAll(){ renderDashboard();renderUploads();renderReport();renderPending();renderReady();renderHistory();renderRecon();renderEditHistory(); $('dbStatus').textContent=`Master: ${orderGroups().size} order · ${cache.incomes.length} pembayaran`; }
+  function renderAll(){ populateProductSuggestions();renderDashboard();renderUploads();renderReport();renderPending();renderReady();renderHistory();renderRecon();renderEditHistory(); $('dbStatus').textContent=`Master: ${orderGroups().size} order · ${cache.incomes.length} pembayaran`; }
 
   function exportXlsxReport(){
     if(!window.XLSX){alert('Library Excel belum tersedia.');return;} const rows=currentReport();
@@ -400,8 +448,8 @@
     $$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view))); $$('[data-go]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.go)));
     $('orderFile').addEventListener('change',()=>{$('orderFileName').textContent=$('orderFile').files[0]?.name||'Belum dipilih'}); $('incomeFile').addEventListener('change',()=>{$('incomeFileName').textContent=$('incomeFile').files[0]?.name||'Belum dipilih'});
     $('clearFilesBtn').addEventListener('click',()=>{$('orderFile').value='';$('incomeFile').value='';$('orderFileName').textContent='Belum dipilih';$('incomeFileName').textContent='Belum dipilih';setMessage('importMessage','Pilihan file dikosongkan.','info')}); $('importBtn').addEventListener('click',importFiles);
-    ['reportReleaseFrom','reportReleaseTo','reportOrderFrom','reportOrderTo','reportPaymentStatus','reportPayoutStatus'].forEach(id=>$(id).addEventListener('change',renderReport)); $('reportSearch').addEventListener('input',renderReport); $('exportReportBtn').addEventListener('click',exportXlsxReport);
-    ['readyFrom','readyTo'].forEach(id=>$(id).addEventListener('change',renderReady)); $('readySearch').addEventListener('input',renderReady); $('resetReadyFilter').addEventListener('click',()=>{$('readyFrom').value='';$('readyTo').value='';$('readySearch').value='';renderReady()}); $('createBatchBtn').addEventListener('click',makeBatch);
+    ['reportReleaseFrom','reportReleaseTo','reportOrderFrom','reportOrderTo','reportPaymentStatus','reportPayoutStatus'].forEach(id=>$(id).addEventListener('change',renderReport)); $('reportProduct').addEventListener('input',renderReport); $('reportSearch').addEventListener('input',renderReport); $('exportReportBtn').addEventListener('click',exportXlsxReport);
+    ['readyDateBasis','readyFrom','readyTo'].forEach(id=>$(id).addEventListener('change',renderReady)); $('readyProduct').addEventListener('input',renderReady); $('readySearch').addEventListener('input',renderReady); $('resetReadyFilter').addEventListener('click',()=>{$('readyDateBasis').value='released';$('readyFrom').value='';$('readyTo').value='';$('readyProduct').value='';$('readySearch').value='';renderReady()}); $('createBatchBtn').addEventListener('click',makeBatch);
     $('exportBatchBtn').addEventListener('click',exportBatchXlsx); $('closeEditBtn').addEventListener('click',()=>{$('editDialog').close();editingOrderNo=null}); $('saveEditBtn').addEventListener('click',saveEditOrder); $('deleteMasterBtn').addEventListener('click',deleteEditedOrder); $('exportBackupBtn').addEventListener('click',exportBackup); $('importBackupFile').addEventListener('change',e=>e.target.files[0]&&importBackup(e.target.files[0])); $('resetDbBtn').addEventListener('click',resetDb);
   }
 

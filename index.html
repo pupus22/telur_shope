@@ -132,13 +132,14 @@
       <section id="view-report" class="view">
         <article class="card">
           <div class="card-head"><div><h2>Filter Laporan</h2><p>Satu baris laporan = satu No. Pesanan. Pembayaran dan Pencairan ditampilkan terpisah.</p></div><button id="exportReportBtn" class="btn ghost">Export Excel</button></div>
-          <div class="filters seven">
+          <div class="filters eight">
             <label>Dana dilepas dari<input id="reportReleaseFrom" type="date"></label>
             <label>Sampai<input id="reportReleaseTo" type="date"></label>
             <label>Tanggal order dari<input id="reportOrderFrom" type="date"></label>
             <label>Sampai<input id="reportOrderTo" type="date"></label>
             <label>Status Pembayaran<select id="reportPaymentStatus"><option value="all">Semua</option><option value="unpaid">Belum Dibayar Shopee</option><option value="paid">Sudah Dibayar Shopee</option></select></label><label>Status Pencairan<select id="reportPayoutStatus"><option value="all">Semua</option><option value="notYet">Belum Dicairkan</option><option value="batched">Sudah Dicairkan</option></select></label>
-            <label>Cari<input id="reportSearch" type="search" placeholder="No pesanan / produk / variasi"></label>
+            <label>Filter Produk<input id="reportProduct" type="search" list="reportProductList" placeholder="Contoh: telur"><datalist id="reportProductList"></datalist></label>
+            <label>Cari<input id="reportSearch" type="search" placeholder="No pesanan / variasi / status"></label>
           </div>
           <div class="summary-strip">
             <div><span>Pesanan</span><strong id="reportCount">0</strong></div>
@@ -160,11 +161,13 @@
 
       <section id="view-ready" class="view">
         <article class="card">
-          <div class="card-head"><div><h2>Siap Dicairkan</h2><p>Pembayaran sudah masuk saldo Shopee, tetapi belum pernah masuk Batch Pencairan Anda.</p></div></div>
-          <div class="filters four">
-            <label>Dana dilepas dari<input id="readyFrom" type="date"></label>
+          <div class="card-head"><div><h2>Siap Dicairkan</h2><p>Pembayaran sudah masuk saldo Shopee, tetapi belum pernah masuk Batch Pencairan Anda. Filter tanggal dapat memakai Tanggal Dana Dilepas atau Tanggal Order.</p></div></div>
+          <div class="filters six">
+            <label>Dasar tanggal<select id="readyDateBasis"><option value="released">Tanggal Dana Dilepas</option><option value="order">Tanggal Order</option></select></label>
+            <label id="readyFromLabel">Dana dilepas dari<input id="readyFrom" type="date"></label>
             <label>Sampai<input id="readyTo" type="date"></label>
-            <label>Cari<input id="readySearch" type="search" placeholder="No pesanan / produk"></label>
+            <label>Filter Produk<input id="readyProduct" type="search" list="readyProductList" placeholder="Contoh: telur"><datalist id="readyProductList"></datalist></label>
+            <label>Cari No. Pesanan<input id="readySearch" type="search" placeholder="No pesanan"></label>
             <div class="filter-action"><button id="resetReadyFilter" class="btn ghost">Reset Filter</button></div>
           </div>
           <div class="batch-summary">
@@ -172,7 +175,7 @@
             <div><span>Nominal siap batch</span><strong id="readyAmount">Rp0</strong></div>
             <button id="createBatchBtn" class="btn success">Buat Batch Pencairan</button>
           </div>
-          <div id="readySearchNote" class="message info">Hasil filter: 0 pesanan siap dicairkan.</div><div id="batchMessage" class="message info">Batch dibuat berdasarkan semua hasil filter yang sedang tampil. Setelah dibuat, setiap No. Pesanan akan diberi tanda Batch.</div>
+          <div id="readySearchNote" class="message info">Hasil filter: 0 pesanan siap dicairkan.</div><div id="productFilterWarning" class="message warning" style="display:none"></div><div id="batchMessage" class="message info">Batch dibuat berdasarkan semua hasil filter yang sedang tampil. Setelah dibuat, setiap No. Pesanan akan diberi tanda Batch.</div>
           <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Tanggal Order</th><th>Pembayaran Shopee</th><th class="num">Nominal Pembayaran</th><th>Aksi</th></tr></thead><tbody id="readyBody"></tbody></table></div>
         </article>
       </section>

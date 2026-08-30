@@ -1,34 +1,27 @@
-# Shopee Order · Pembayaran · Pencairan v1.1
+# Shopee Order · Pembayaran · Pencairan v1.3
 
-Web lokal/GitHub Pages untuk menggabungkan file Order dan Income Shopee.
+Web uji lokal untuk menggabungkan snapshot Excel Order dan Income Shopee, menyimpan master di IndexedDB browser, serta membuat Batch Pencairan tanpa mencairkan No. Pesanan yang sama dua kali.
 
-## Konsep utama
-- File Order: No. Pesanan boleh ganda; setiap baris produk/variasi dipertahankan.
-- File Income: satu No. Pesanan dipakai satu kali pada baris `Lihat berdasarkan = Order`.
-- Pembayaran: dana yang sudah dilepas Shopee ke saldo penjual (berasal dari file Income).
-- Pencairan: batch yang dibuat pengguna untuk menandai pembayaran yang sudah dicairkan.
-- No. Pesanan yang sudah masuk batch memiliki tanda permanen `Sudah Dicairkan · BATCH-...` dan tidak masuk batch berikutnya.
+## Aturan utama
+- File Order: No. Pesanan boleh ganda karena satu pesanan dapat memiliki beberapa produk/SKU/variasi.
+- File Income: aplikasi memakai baris `Lihat berdasarkan = Order`, sehingga satu No. Pesanan memiliki satu nominal Pembayaran Shopee.
+- Pembayaran Shopee berbeda dengan Pencairan. Pembayaran = dana dilepas Shopee ke saldo. Pencairan = No. Pesanan dimasukkan ke Batch Pencairan aplikasi.
+- Batch mengunci No. Pesanan dan tetap dikenali pada upload harian berikutnya.
 
-## v1.1
-- Status Pembayaran dan Status Pencairan dipisahkan.
-- Ringkasan hasil filter/pencarian: jumlah pesanan, total Pembayaran, belum dicairkan, sudah dicairkan.
-- Edit Master dari Laporan Gabungan, Pending Pembayaran, dan Siap Dicairkan.
-- Field yang dapat dikoreksi: No. Pesanan, status/tanggal Order, produk, variasi, jumlah, nominal/tanggal Pembayaran, serta keanggotaan Batch Pencairan.
-- Perubahan manual dicatat pada Riwayat Edit Manual.
-- Batch menyimpan No. Pesanan dan nominal snapshot.
-- Batch dapat dibatalkan tanpa menghapus jejak audit.
-- Upload harian melakukan insert/update ke IndexedDB; file Excel lama tidak perlu disimpan.
-- Backup/restore JSON untuk memindahkan database lokal.
-
-## Menjalankan
-1. Ekstrak ZIP.
-2. Buka `index.html` (membutuhkan internet saat pertama kali memuat library XLSX).
-3. Upload file Order dan Income terbaru.
-4. Gunakan Laporan Gabungan untuk memeriksa data.
-5. Gunakan Siap Dicairkan untuk filter lalu buat Batch Pencairan.
-
-## GitHub Pages
-Upload hanya file aplikasi (`index.html`, `app.js`, `styles.css`, `README.md`). Jangan upload file Excel transaksi/pelanggan ke repository publik.
+## Baru di v1.3
+- Filter Produk pada Laporan Gabungan.
+- Filter Produk pada menu Siap Dicairkan.
+- Filter produk menggunakan pencarian sebagian teks, misalnya `telur`, `omega`, atau `horn`.
+- Daftar saran produk diambil otomatis dari Master Order.
+- Jumlah pesanan dan nominal siap dicairkan mengikuti filter tanggal + produk.
+- Filter yang digunakan disimpan sebagai snapshot di Batch.
+- Pesanan campuran diberi peringatan. Jika satu No. Pesanan berisi produk yang cocok dengan filter dan produk lain, seluruh nominal Income order tetap ikut batch karena Income hanya satu nominal per No. Pesanan.
 
 ## Penyimpanan
-Versi uji memakai IndexedDB pada browser. Untuk pemakaian lintas perangkat, database dapat dipindahkan ke Firebase pada tahap berikutnya.
+Versi uji menyimpan master di IndexedDB browser. File Excel asli tidak disimpan oleh aplikasi. Untuk pemakaian lintas perangkat, database akan lebih aman dipindahkan ke Firebase.
+
+
+## Tambahan v1.3
+- Halaman **Siap Dicairkan** memiliki pilihan dasar tanggal: **Tanggal Dana Dilepas** atau **Tanggal Order**.
+- Rentang Dari/Sampai mengikuti dasar tanggal yang dipilih.
+- Snapshot batch menyimpan dasar tanggal dan periode filter agar riwayat pencairan dapat diaudit.
