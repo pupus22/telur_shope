@@ -28,7 +28,7 @@
         <button class="nav-btn" data-view="settings">Backup & Data</button>
       </nav>
       <div class="sidebar-note">
-        <strong>Versi uji lokal</strong>
+        <strong>Versi uji lokal v1.5</strong>
         <span>Data tersimpan di browser ini menggunakan IndexedDB.</span>
       </div>
     </aside>
@@ -138,8 +138,14 @@
             <label>Tanggal order dari<input id="reportOrderFrom" type="date"></label>
             <label>Sampai<input id="reportOrderTo" type="date"></label>
             <label>Status Pembayaran<select id="reportPaymentStatus"><option value="all">Semua</option><option value="unpaid">Belum Dibayar Shopee</option><option value="paid">Sudah Dibayar Shopee</option></select></label><label>Status Pencairan<select id="reportPayoutStatus"><option value="all">Semua</option><option value="notYet">Belum Dicairkan</option><option value="batched">Sudah Dicairkan</option></select></label>
-            <label>Filter Produk<input id="reportProduct" type="search" list="reportProductList" placeholder="Contoh: telur"><datalist id="reportProductList"></datalist></label>
             <label>Cari<input id="reportSearch" type="search" placeholder="No pesanan / variasi / status"></label>
+          </div>
+          <div class="product-picker" id="reportProductBox">
+            <div class="product-picker-head">
+              <div><strong>Filter Produk</strong><span>Daftar dimuat otomatis dari Nama Produk pada Master Order. Centang satu atau beberapa produk.</span></div>
+              <div class="product-picker-actions"><button id="reportProductAll" type="button" class="btn ghost small">Pilih Semua</button><button id="reportProductNone" type="button" class="btn ghost small">Kosongkan</button></div>
+            </div>
+            <div id="reportProductChoices" class="product-check-grid"></div>
           </div>
           <div class="summary-strip">
             <div><span>Pesanan</span><strong id="reportCount">0</strong></div>
@@ -161,14 +167,20 @@
 
       <section id="view-ready" class="view">
         <article class="card">
-          <div class="card-head"><div><h2>Siap Dicairkan</h2><p>Pembayaran sudah masuk saldo Shopee, tetapi belum pernah masuk Batch Pencairan Anda. Filter tanggal dapat memakai Tanggal Dana Dilepas atau Tanggal Order.</p></div></div>
-          <div class="filters six">
-            <label>Dasar tanggal<select id="readyDateBasis"><option value="released">Tanggal Dana Dilepas</option><option value="order">Tanggal Order</option></select></label>
-            <label id="readyFromLabel">Dana dilepas dari<input id="readyFrom" type="date"></label>
-            <label>Sampai<input id="readyTo" type="date"></label>
-            <label>Filter Produk<input id="readyProduct" type="search" list="readyProductList" placeholder="Contoh: telur"><datalist id="readyProductList"></datalist></label>
+          <div class="card-head"><div><h2>Siap Dicairkan</h2><p>Pembayaran sudah masuk saldo Shopee, tetapi belum pernah masuk Batch Pencairan Anda. Pilih sumber pencarian: ORDER menyaring data dari file Order, sedangkan INCOME menyaring data dari file Income.</p></div></div>
+          <div class="filters five">
+            <label>Sumber pencarian<select id="readyDateBasis"><option value="income">INCOME · File Income</option><option value="order">ORDER · File Order</option></select></label>
+            <label id="readyFromLabel">Tanggal dana dilepas dari<input id="readyFrom" type="date"></label>
+            <label id="readyToLabel">Sampai<input id="readyTo" type="date"></label>
             <label>Cari No. Pesanan<input id="readySearch" type="search" placeholder="No pesanan"></label>
             <div class="filter-action"><button id="resetReadyFilter" class="btn ghost">Reset Filter</button></div>
+          </div>
+          <div class="product-picker" id="readyProductBox">
+            <div class="product-picker-head">
+              <div><strong>Produk yang ingin dicairkan <span class="muted">(khusus sumber ORDER)</span></strong><span>Produk dimuat otomatis dari Master Order. Centang produk yang ingin dimasukkan ke hasil pencarian dan Batch.</span></div>
+              <div class="product-picker-actions"><button id="readyProductAll" type="button" class="btn ghost small">Pilih Semua</button><button id="readyProductNone" type="button" class="btn ghost small">Kosongkan</button></div>
+            </div>
+            <div id="readyProductChoices" class="product-check-grid"></div>
           </div>
           <div class="batch-summary">
             <div><span>Pesanan siap batch</span><strong id="readyCount">0</strong></div>
