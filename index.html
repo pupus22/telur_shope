@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#2563eb">
+  <title>Order, Pembayaran & Pencairan Shopee</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">SP</div>
+        <div>
+          <strong>Shopee Payout</strong>
+          <small>Order · Pembayaran · Pencairan</small>
+        </div>
+      </div>
+      <nav class="nav" aria-label="Menu utama">
+        <button class="nav-btn active" data-view="dashboard">Dashboard</button>
+        <button class="nav-btn" data-view="upload">Upload Data</button>
+        <button class="nav-btn" data-view="report">Laporan Gabungan</button>
+        <button class="nav-btn" data-view="pending">Pending Pembayaran</button>
+        <button class="nav-btn" data-view="ready">Siap Dicairkan</button>
+        <button class="nav-btn" data-view="history">Riwayat Batch</button>
+        <button class="nav-btn" data-view="recon">Rekonsiliasi</button>
+        <button class="nav-btn" data-view="settings">Backup & Data</button>
+      </nav>
+      <div class="sidebar-note">
+        <strong>Versi uji lokal</strong>
+        <span>Data tersimpan di browser ini menggunakan IndexedDB.</span>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h1 id="pageTitle">Dashboard</h1>
+          <p id="pageSubtitle">Ringkasan Order, Pembayaran Shopee, dan Pencairan Anda.</p>
+        </div>
+        <div class="top-actions">
+          <span id="dbStatus" class="status-pill">Memuat database…</span>
+        </div>
+      </header>
+
+      <section id="view-dashboard" class="view active">
+        <div class="kpi-grid">
+          <article class="kpi"><span>Order unik</span><strong id="kpiOrders">0</strong><small id="kpiOrderLines">0 baris produk</small></article>
+          <article class="kpi"><span>Pembayaran Shopee</span><strong id="kpiIncome">Rp0</strong><small id="kpiIncomeCount">0 pesanan sudah dibayar</small></article>
+          <article class="kpi"><span>Siap dicairkan</span><strong id="kpiReady">Rp0</strong><small id="kpiReadyCount">0 pesanan</small></article>
+          <article class="kpi"><span>Sudah Dicairkan</span><strong id="kpiBatched">Rp0</strong><small id="kpiBatchedCount">0 pesanan masuk batch</small></article>
+        </div>
+
+        <div class="grid-2">
+          <article class="card">
+            <div class="card-head"><div><h2>Status Data</h2><p>Posisi setiap No. Pesanan pada master saat ini.</p></div></div>
+            <div class="status-list">
+              <div><span>Belum Dibayar Shopee</span><strong id="dashPending">0</strong></div>
+              <div><span>Siap Dicairkan</span><strong id="dashReady">0</strong></div>
+              <div><span>Sudah Dicairkan</span><strong id="dashDone">0</strong></div>
+              <div><span>Pembayaran tanpa Order</span><strong id="dashIncomeOnly">0</strong></div>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-head"><div><h2>Upload Terakhir</h2><p>Riwayat import terbaru ke master.</p></div></div>
+            <div id="latestUpload" class="empty-state">Belum ada upload.</div>
+          </article>
+        </div>
+
+        <article class="card">
+          <div class="card-head">
+            <div><h2>Perlu Dicek</h2><p>No. Pesanan ganda di Order adalah normal dan hanya ditampilkan sebagai informasi.</p></div>
+            <button class="btn ghost" data-go="recon">Buka Rekonsiliasi</button>
+          </div>
+          <div id="anomalyGrid" class="anomaly-grid"></div>
+        </article>
+      </section>
+
+      <section id="view-upload" class="view">
+        <article class="card">
+          <div class="card-head"><div><h2>Upload Snapshot Terbaru</h2><p>Upload file Order dan Income terbaru. Data lama tidak ditumpuk; master akan di-insert/update.</p></div></div>
+          <div class="upload-grid">
+            <label class="file-box">
+              <span class="file-label">File Order</span>
+              <strong>Order Excel</strong>
+              <span id="orderFileName">Belum dipilih</span>
+              <input id="orderFile" type="file" accept=".xlsx,.xls">
+            </label>
+            <label class="file-box">
+              <span class="file-label">File Income</span>
+              <strong>Income Excel</strong>
+              <span id="incomeFileName">Belum dipilih</span>
+              <input id="incomeFile" type="file" accept=".xlsx,.xls">
+            </label>
+          </div>
+          <div class="action-row">
+            <button id="importBtn" class="btn primary">Proses & Simpan ke Master</button>
+            <button id="clearFilesBtn" class="btn ghost">Kosongkan Pilihan</button>
+          </div>
+          <div id="importMessage" class="message info">Pilih dua file untuk mulai.</div>
+        </article>
+
+        <div class="grid-2">
+          <article class="card">
+            <div class="card-head"><div><h2>Aturan Import Order</h2></div></div>
+            <ul class="rules">
+              <li>No. Pesanan boleh ganda.</li>
+              <li>Setiap baris produk/variasi tetap disimpan.</li>
+              <li>Upload ulang baris yang sama akan memperbarui master, bukan menggandakan.</li>
+              <li>Belum Dibayar ditentukan dari No. Pesanan Order yang belum ditemukan pada file Income.</li>
+            </ul>
+          </article>
+          <article class="card">
+            <div class="card-head"><div><h2>Aturan Import Pembayaran (Income)</h2></div></div>
+            <ul class="rules">
+              <li>Hanya baris <b>Lihat berdasarkan = Order</b> yang digunakan.</li>
+              <li>Satu No. Pesanan = satu Income.</li>
+              <li>Baris SKU diabaikan untuk mencegah penghasilan ganda.</li>
+              <li>Status Batch lama tetap dipertahankan saat Income di-upload ulang.</li>
+            </ul>
+          </article>
+        </div>
+
+        <article class="card">
+          <div class="card-head"><div><h2>Riwayat Upload</h2><p>File asli tidak disimpan; yang tersimpan adalah hasil import dan log upload.</p></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Waktu</th><th>File Order</th><th>File Income</th><th>Order</th><th>Income</th><th>Baru / Update</th></tr></thead><tbody id="uploadHistoryBody"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="view-report" class="view">
+        <article class="card">
+          <div class="card-head"><div><h2>Filter Laporan</h2><p>Satu baris laporan = satu No. Pesanan. Pembayaran dan Pencairan ditampilkan terpisah.</p></div><button id="exportReportBtn" class="btn ghost">Export Excel</button></div>
+          <div class="filters seven">
+            <label>Dana dilepas dari<input id="reportReleaseFrom" type="date"></label>
+            <label>Sampai<input id="reportReleaseTo" type="date"></label>
+            <label>Tanggal order dari<input id="reportOrderFrom" type="date"></label>
+            <label>Sampai<input id="reportOrderTo" type="date"></label>
+            <label>Status Pembayaran<select id="reportPaymentStatus"><option value="all">Semua</option><option value="unpaid">Belum Dibayar Shopee</option><option value="paid">Sudah Dibayar Shopee</option></select></label><label>Status Pencairan<select id="reportPayoutStatus"><option value="all">Semua</option><option value="notYet">Belum Dicairkan</option><option value="batched">Sudah Dicairkan</option></select></label>
+            <label>Cari<input id="reportSearch" type="search" placeholder="No pesanan / produk / variasi"></label>
+          </div>
+          <div class="summary-strip">
+            <div><span>Pesanan</span><strong id="reportCount">0</strong></div>
+            <div><span>Total Pembayaran</span><strong id="reportIncomeTotal">Rp0</strong></div>
+            <div><span>Belum Dibayar</span><strong id="reportPendingCount">0</strong></div>
+            <div><span>Belum Dicairkan</span><strong id="reportReadyCount">0</strong></div><div><span>Sudah Dicairkan</span><strong id="reportBatchedCount">0</strong></div>
+          </div>
+          <div id="reportSearchNote" class="message info">Hasil pencarian: 0 pesanan.</div><div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Nama Produk / Variasi</th><th>Status Order</th><th>Status Pembayaran</th><th class="num">Pembayaran</th><th>Tanggal Order</th><th>Tgl Pembayaran / Dana Dilepas</th><th>Status Pencairan</th><th>Aksi</th></tr></thead><tbody id="reportBody"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="view-pending" class="view">
+        <article class="card">
+          <div class="card-head"><div><h2>Pending Pembayaran</h2><p>Ada di file Order tetapi pembayaran belum ditemukan pada file Income.</p></div></div>
+          <div class="summary-strip"><div><span>Belum Dibayar</span><strong id="pendingCount">0</strong></div><div><span>Baris Produk</span><strong id="pendingLines">0</strong></div></div>
+          <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Status Order</th><th>Tanggal Order</th><th>Aksi</th></tr></thead><tbody id="pendingBody"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="view-ready" class="view">
+        <article class="card">
+          <div class="card-head"><div><h2>Siap Dicairkan</h2><p>Pembayaran sudah masuk saldo Shopee, tetapi belum pernah masuk Batch Pencairan Anda.</p></div></div>
+          <div class="filters four">
+            <label>Dana dilepas dari<input id="readyFrom" type="date"></label>
+            <label>Sampai<input id="readyTo" type="date"></label>
+            <label>Cari<input id="readySearch" type="search" placeholder="No pesanan / produk"></label>
+            <div class="filter-action"><button id="resetReadyFilter" class="btn ghost">Reset Filter</button></div>
+          </div>
+          <div class="batch-summary">
+            <div><span>Pesanan siap batch</span><strong id="readyCount">0</strong></div>
+            <div><span>Nominal siap batch</span><strong id="readyAmount">Rp0</strong></div>
+            <button id="createBatchBtn" class="btn success">Buat Batch Pencairan</button>
+          </div>
+          <div id="readySearchNote" class="message info">Hasil filter: 0 pesanan siap dicairkan.</div><div id="batchMessage" class="message info">Batch dibuat berdasarkan semua hasil filter yang sedang tampil. Setelah dibuat, setiap No. Pesanan akan diberi tanda Batch.</div>
+          <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Tanggal Order</th><th>Pembayaran Shopee</th><th class="num">Nominal Pembayaran</th><th>Aksi</th></tr></thead><tbody id="readyBody"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="view-history" class="view">
+        <article class="card">
+          <div class="card-head"><div><h2>Riwayat Batch Pencairan</h2><p>Batch yang dibatalkan tetap tersimpan sebagai audit.</p></div><button id="exportBatchBtn" class="btn ghost">Export Riwayat Excel</button></div>
+          <div class="table-wrap large"><table><thead><tr><th>ID Batch</th><th>Dibuat</th><th>Status</th><th>Jumlah Pesanan</th><th class="num">Nominal Snapshot</th><th>Aksi</th></tr></thead><tbody id="batchHistoryBody"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="view-recon" class="view">
+        <div class="kpi-grid recon-kpi">
+          <article class="kpi"><span>Total Pembayaran Master</span><strong id="reconIncome">Rp0</strong><small id="reconIncomeN">0 pesanan</small></article>
+          <article class="kpi"><span>Sudah Dicairkan</span><strong id="reconBatched">Rp0</strong><small id="reconBatchedN">0 pesanan</small></article>
+          <article class="kpi"><span>Belum Dicairkan</span><strong id="reconReady">Rp0</strong><small id="reconReadyN">0 pesanan</small></article>
+          <article class="kpi"><span>Selisih</span><strong id="reconDiff">Rp0</strong><small>Target harus Rp0</small></article>
+        </div>
+        <article class="card">
+          <div class="card-head"><div><h2>Rekonsiliasi</h2><p>Total Pembayaran = Sudah Dicairkan + Belum Dicairkan.</p></div></div>
+          <div id="reconMessage" class="message"></div>
+          <div class="recon-equation">
+            <span>Total Pembayaran</span><b>=</b><span>Sudah Dicairkan</span><b>+</b><span>Belum Dicairkan</span>
+          </div>
+        </article>
+        <article class="card">
+          <div class="card-head"><div><h2>Anomali Data</h2><p>Digunakan untuk memeriksa ketidaksesuaian upload dan perubahan data.</p></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Jenis</th><th>No. Pesanan</th><th>Keterangan</th></tr></thead><tbody id="anomalyBody"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="view-settings" class="view">
+        <article class="card">
+          <div class="card-head"><div><h2>Riwayat Edit Manual</h2><p>Semua koreksi manual pada Order, Pembayaran, atau status Pencairan dicatat di sini.</p></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Waktu</th><th>No. Pesanan Sebelum</th><th>No. Pesanan Sesudah</th><th>Catatan</th></tr></thead><tbody id="editHistoryBody"></tbody></table></div>
+        </article>
+        <div class="grid-2">
+          <article class="card">
+            <div class="card-head"><div><h2>Backup Database Lokal</h2><p>Gunakan sebelum pindah browser/PC. Backup berisi Order, Pembayaran, Batch Pencairan, riwayat upload, dan riwayat edit.</p></div></div>
+            <div class="action-stack">
+              <button id="exportBackupBtn" class="btn primary">Export Backup JSON</button>
+              <label class="btn ghost file-button">Import Backup JSON<input id="importBackupFile" type="file" accept=".json"></label>
+            </div>
+            <div id="backupMessage" class="message info">Belum ada tindakan.</div>
+          </article>
+          <article class="card danger-card">
+            <div class="card-head"><div><h2>Reset Data Uji</h2><p>Menghapus seluruh master dan riwayat dari browser ini.</p></div></div>
+            <button id="resetDbBtn" class="btn danger">Hapus Semua Data Lokal</button>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="editDialog" class="dialog">
+    <div class="dialog-card wide">
+      <div class="card-head"><div><h2>Edit Data Pesanan</h2><p>Semua perubahan disimpan ke master lokal dan dicatat pada log edit.</p></div><button id="closeEditBtn" type="button" class="btn ghost">Tutup</button></div>
+      <div id="editMessage" class="message info">No. Pesanan dapat diubah. Relasi Order, Pembayaran, dan Batch akan ikut diperbarui.</div>
+      <div class="edit-grid">
+        <label>No. Pesanan<input id="editOrderNo" type="text"></label>
+        <label>Status Order<input id="editOrderStatus" type="text"></label>
+        <label>Tanggal Order<input id="editOrderDate" type="date"></label>
+        <label>Total Pembayaran<input id="editIncomeAmount" type="number" step="1" min="0"></label>
+        <label>Tanggal Pembayaran / Dana Dilepas<input id="editReleasedDate" type="date"></label>
+        <label>Status Pencairan<select id="editBatchId"><option value="">Belum Dicairkan</option></select></label>
+      </div>
+      <h3 class="edit-subtitle">Detail Produk / Variasi</h3>
+      <div id="editLines" class="edit-lines"></div>
+      <div class="dialog-actions">
+        <button id="deleteMasterBtn" type="button" class="btn danger">Hapus Data Pesanan</button>
+        <button id="saveEditBtn" type="button" class="btn success">Simpan Perubahan</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="confirmDialog" class="dialog">
+    <form method="dialog" class="dialog-card">
+      <h2 id="dialogTitle">Konfirmasi</h2>
+      <div id="dialogContent"></div>
+      <div class="dialog-actions">
+        <button value="cancel" class="btn ghost">Batal</button>
+        <button id="dialogConfirmBtn" value="confirm" class="btn success">Konfirmasi</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="detailDialog" class="dialog">
+    <form method="dialog" class="dialog-card wide">
+      <div class="card-head"><div><h2 id="detailTitle">Detail Batch</h2><p id="detailSubtitle"></p></div><button value="close" class="btn ghost">Tutup</button></div>
+      <div class="table-wrap"><table><thead><tr><th>No. Pesanan</th><th>Tgl Pembayaran Shopee</th><th class="num">Nominal Saat Dicairkan</th></tr></thead><tbody id="detailBatchBody"></tbody></table></div>
+    </form>
+  </dialog>
+
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script>if(!window.XLSX){document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\\/script>')}</script>
+  <script src="app.js"></script>
+</body>
+</html>
