@@ -12,7 +12,7 @@
 
   const $ = (id) => document.getElementById(id);
   const $$ = (sel) => [...document.querySelectorAll(sel)];
-  const APP_VERSION = '1.8';
+  const APP_VERSION = '1.8.1';
   function on(id, event, handler){
     const el = $(id);
     if(!el){ console.warn(`[${APP_VERSION}] Elemen #${id} tidak ditemukan. Kemungkinan index.html dan app.js berbeda versi.`); return false; }

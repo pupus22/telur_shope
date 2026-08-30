@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#2563eb">
   <title>Order, Pembayaran & Pencairan Shopee</title>
-  <link rel="stylesheet" href="styles.css?v=1.8.1">
+  <link rel="stylesheet" href="styles.css?v=1.8">
 </head>
 <body>
   <div class="app-shell">
@@ -282,6 +282,18 @@
 
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script>if(!window.XLSX){document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\\/script>')}</script>
-  <script src="app.js?v=1.8.1"></script>
+  <script src="app.js?v=1.8"></script>
+<script>
+setTimeout(()=>{
+ const dlg=document.getElementById('editDialog');
+ document.getElementById('editOrderNo').value='250830TEST';
+ document.getElementById('editOrderStatus').value='Perlu Dikirim';
+ document.getElementById('editOrderDate').value='2026-08-30';
+ document.getElementById('editIncomeAmount').value='125000';
+ document.getElementById('editReleasedDate').value='2026-08-30';
+ document.getElementById('editLines').innerHTML=`<div class="edit-line"><div class="edit-line-no">Item 1</div><label>Produk<input value="Tetract spion MAZDA ALL VARIAN, CX, SKYACTIV"></label><label>Variasi<input value="MAZDA CX-5"></label><label>Jumlah<input value="2"></label></div><div class="edit-line"><div class="edit-line-no">Item 2</div><label>Produk<input value="Telur Ayam Negeri Fresh Premium"></label><label>Variasi<input value="1 Kg"></label><label>Jumlah<input value="1"></label></div>`;
+ if(dlg && !dlg.open) dlg.showModal();
+},700);
+</script>
 </body>
 </html>
