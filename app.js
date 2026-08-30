@@ -26,7 +26,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
 
   const $ = (id) => document.getElementById(id);
   const $$ = (sel) => [...document.querySelectorAll(sel)];
-  const APP_VERSION = '1.9.0';
+  const APP_VERSION = '1.9.3';
   function on(id, event, handler){
     const el = $(id);
     if(!el){ console.warn(`[${APP_VERSION}] Elemen #${id} tidak ditemukan.`); return false; }

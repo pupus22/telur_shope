@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#2563eb">
   <title>Order, Pembayaran & Pencairan Shopee</title>
-  <link rel="stylesheet" href="styles.css?v=1.9.2">
+  <link rel="stylesheet" href="styles.css?v=1.9.3">
 </head>
 <body>
   <div id="authGate" class="auth-gate">
@@ -42,9 +42,16 @@
         <button class="nav-btn" data-view="recon">Rekonsiliasi</button>
         <button class="nav-btn" data-view="settings">Backup & Data</button>
       </nav>
-      <div class="sidebar-note">
-        <strong>Firebase v1.9.2</strong>
-        <span>Master tersimpan online di Cloud Firestore.</span>
+      <div class="sidebar-footer">
+        <div class="sidebar-note">
+          <strong>Firebase v1.9.3</strong>
+          <span>Master tersimpan online di Cloud Firestore.</span>
+        </div>
+        <div class="sidebar-account">
+          <span class="sidebar-account-label">Login sebagai</span>
+          <strong id="userEmail" class="user-email"></strong>
+          <button id="logoutBtn" type="button" class="btn sidebar-logout">Keluar</button>
+        </div>
       </div>
     </aside>
 
@@ -56,8 +63,6 @@
         </div>
         <div class="top-actions">
           <span id="dbStatus" class="status-pill">Menghubungkan Firebase…</span>
-          <span id="userEmail" class="user-email"></span>
-          <button id="logoutBtn" type="button" class="btn ghost small">Keluar</button>
         </div>
       </header>
 
@@ -258,7 +263,7 @@
     </main>
   </div>
 
-  <dialog id="editDialog" class="dialog dialog-fullscreen">
+  <dialog id="editDialog" class="dialog dialog-standard dialog-fullscreen">
     <div class="dialog-card edit-dialog-card">
       <div class="card-head"><div><h2>Edit Data Pesanan</h2><p>Semua perubahan disimpan ke Firestore dan dicatat pada log edit.</p></div><button id="closeEditBtn" type="button" class="btn ghost">Tutup</button></div>
       <div id="editMessage" class="message info">No. Pesanan dapat diubah. Relasi Order, Pembayaran, dan Batch akan ikut diperbarui.</div>
@@ -279,8 +284,8 @@
     </div>
   </dialog>
 
-  <dialog id="confirmDialog" class="dialog">
-    <form method="dialog" class="dialog-card">
+  <dialog id="confirmDialog" class="dialog dialog-standard">
+    <form method="dialog" class="dialog-card confirm-dialog-card">
       <h2 id="dialogTitle">Konfirmasi</h2>
       <div id="dialogContent"></div>
       <div class="dialog-actions">
@@ -290,7 +295,7 @@
     </form>
   </dialog>
 
-  <dialog id="detailDialog" class="dialog dialog-batch-detail">
+  <dialog id="detailDialog" class="dialog dialog-standard dialog-batch-detail">
     <form method="dialog" class="dialog-card batch-detail-card">
       <div class="card-head batch-detail-head"><div><h2 id="detailTitle">Detail Batch</h2><p id="detailSubtitle"></p></div><button value="close" class="btn ghost">Tutup</button></div>
       <div class="table-wrap batch-detail-table-wrap"><table class="batch-detail-table"><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Tgl Order</th><th>Tgl Pembayaran Shopee</th><th class="num">Nominal Saat Dicairkan</th></tr></thead><tbody id="detailBatchBody"></tbody></table></div>
@@ -299,6 +304,6 @@
 
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script>if(!window.XLSX){document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\\/script>')}</script>
-  <script type="module" src="app.js?v=1.9.2"></script>
+  <script type="module" src="app.js?v=1.9.3"></script>
 </body>
 </html>

@@ -161,3 +161,153 @@
   .dialog-batch-detail .batch-detail-head{padding:14px 12px 10px;}
   .batch-detail-table{min-width:820px;}
 }
+
+/* v1.9.3 — sidebar desktop fixed + menu scroll + logout di sidebar */
+@media (min-width:761px){
+  .app-shell{
+    display:block;
+    min-height:100vh;
+  }
+  .sidebar{
+    position:fixed;
+    inset:0 auto 0 0;
+    width:240px;
+    height:100vh;
+    padding:22px 16px 16px;
+    gap:18px;
+    overflow:hidden;
+    z-index:30;
+  }
+  .sidebar .brand{flex:0 0 auto;}
+  .sidebar .nav{
+    flex:1 1 auto;
+    min-height:0;
+    overflow-y:auto;
+    overflow-x:hidden;
+    padding-right:4px;
+    scrollbar-width:thin;
+    scrollbar-color:#394764 transparent;
+  }
+  .sidebar .nav::-webkit-scrollbar{width:6px;}
+  .sidebar .nav::-webkit-scrollbar-thumb{background:#394764;border-radius:999px;}
+  .sidebar-footer{
+    flex:0 0 auto;
+    display:grid;
+    gap:10px;
+  }
+  .sidebar-note{margin-top:0;}
+  .sidebar-account{
+    display:grid;
+    gap:7px;
+    padding:11px;
+    border:1px solid #2e3b58;
+    border-radius:12px;
+    background:#18233b;
+  }
+  .sidebar-account-label{font-size:11px;color:#8fa0bf;}
+  .sidebar .user-email{
+    display:block;
+    max-width:100%;
+    color:#eef3ff;
+    font-size:12px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .sidebar-logout{
+    width:100%;
+    min-height:38px;
+    border:1px solid #40506e;
+    background:#22304e;
+    color:#fff;
+  }
+  .sidebar-logout:hover{background:#2d3d5e;}
+  .main{
+    margin-left:240px;
+    width:calc(100% - 240px);
+  }
+}
+
+/* Mobile tetap ringkas: sidebar berubah jadi bar menu horizontal. */
+@media(max-width:760px){
+  .sidebar-footer{display:none;}
+}
+
+/* v1.9.3 — satu standar ukuran untuk seluruh popup/modal */
+.dialog-standard,
+.dialog-fullscreen,
+.dialog-batch-detail{
+  width:min(1500px,96vw) !important;
+  max-width:96vw !important;
+  height:92vh !important;
+  max-height:92vh !important;
+  margin:auto !important;
+  padding:0 !important;
+  overflow:visible !important;
+}
+.dialog-standard[open],
+.dialog-fullscreen[open],
+.dialog-batch-detail[open]{display:block;}
+
+.dialog-standard > .dialog-card,
+.dialog-fullscreen > .dialog-card,
+.dialog-batch-detail > .dialog-card{
+  width:100% !important;
+  max-width:none !important;
+  height:100% !important;
+  min-height:0 !important;
+  max-height:none !important;
+  margin:0 !important;
+  border-radius:18px !important;
+  box-shadow:0 28px 90px rgba(0,0,0,.34);
+}
+
+/* Edit: seluruh popup sama, isi yang scroll. */
+.dialog-standard .edit-dialog-card{
+  padding:22px clamp(18px,2.4vw,38px) 0 !important;
+  overflow:auto !important;
+}
+
+/* Detail batch: header diam, tabel yang scroll. */
+.dialog-standard .batch-detail-card{
+  padding:0 !important;
+  overflow:hidden !important;
+  display:flex;
+  flex-direction:column;
+}
+
+/* Konfirmasi memakai ukuran popup yang sama, tetapi layout tetap rapi. */
+.confirm-dialog-card{
+  padding:24px !important;
+  overflow:hidden !important;
+  display:flex;
+  flex-direction:column;
+}
+.confirm-dialog-card #dialogContent{
+  flex:1 1 auto;
+  min-height:0;
+  overflow:auto;
+  padding:4px 0 12px;
+}
+.confirm-dialog-card .dialog-actions{
+  flex:0 0 auto;
+  margin-top:auto;
+  padding-top:16px;
+  border-top:1px solid var(--line);
+}
+
+@media(max-width:760px){
+  .dialog-standard,
+  .dialog-fullscreen,
+  .dialog-batch-detail{
+    width:calc(100vw - 12px) !important;
+    max-width:calc(100vw - 12px) !important;
+    height:calc(100vh - 12px) !important;
+    max-height:calc(100vh - 12px) !important;
+  }
+  .dialog-standard > .dialog-card,
+  .dialog-fullscreen > .dialog-card,
+  .dialog-batch-detail > .dialog-card{
+    border-radius:14px !important;
+  }
+}

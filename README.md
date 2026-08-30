@@ -1,49 +1,13 @@
-# Shopee Payout v1.9.2 Firebase
+# Shopee Payout v1.9.3
 
-Versi ini menggunakan Firebase Authentication + Cloud Firestore sebagai database utama.
+Perubahan utama:
+- Sidebar desktop berukuran tetap 240px dan menempel di kiri.
+- Area menu sidebar dapat di-scroll vertikal jika tinggi layar pendek.
+- Email login dan tombol Logout dipindahkan ke bagian bawah sidebar.
+- Header kanan hanya menampilkan status Firebase agar lebih bersih.
+- Semua popup/modal memakai standar ukuran yang sama: sekitar 96% lebar dan 92% tinggi viewport pada desktop.
+- Edit Pesanan, Detail Batch, dan Konfirmasi tetap berupa popup di atas halaman dengan backdrop.
+- Detail Batch tetap menampilkan item produk/variasi per No. Pesanan dan tabel dapat di-scroll di dalam popup.
+- Firebase/Firestore dan struktur data tidak berubah dari v1.9.2.
 
-## Firebase yang terpasang
-- Project: `shopee-payout-b62c3`
-- Firestore: database `(default)`
-- Login: Email/Password
-- Akses Firestore dikunci ke UID admin melalui Firestore Rules.
-- Domain GitHub Pages yang harus ada di Authentication > Settings > Authorized domains: `pupus22.github.io`
-
-## Deploy ke GitHub Pages
-1. Replace `index.html`, `app.js`, dan `styles.css` di repository `telur_shope`.
-2. Tunggu GitHub Pages selesai deploy.
-3. Buka `https://pupus22.github.io/telur_shope/` lalu Ctrl+F5.
-4. Login dengan akun Email/Password yang sudah dibuat di Firebase Authentication.
-5. Upload file Order + Income. Collection Firestore dibuat otomatis saat import pertama.
-
-## Collection Firestore
-- `orders`: 1 dokumen per No. Pesanan; detail produk disimpan dalam array `items`.
-- `incomes`: 1 dokumen per No. Pesanan.
-- `batches`: Batch Pencairan + snapshot No. Pesanan/nominal.
-- `uploads`: riwayat upload.
-- `anomalies`: anomali import/data.
-- `edits`: audit edit manual.
-
-## Aturan penting
-- No. Pesanan berulang di file Order adalah normal: 1 order dapat memiliki banyak produk.
-- Income hanya dihitung satu kali per No. Pesanan.
-- Halaman Siap Dicairkan difilter berdasarkan Tanggal Order.
-- Pembuatan Batch memakai Firestore Transaction dan mengecek ulang `batchId` setiap Income untuk mencegah pencairan ganda.
-- File Excel asli tidak di-upload ke Firestore; hanya hasil olah datanya yang disimpan.
-
-## Catatan
-Firebase config pada aplikasi web memang dapat berada di client. Keamanan data ditentukan oleh Firebase Authentication + Firestore Security Rules, bukan dengan menyembunyikan `firebaseConfig`.
-
-
-## Hotfix v1.9.2
-- Memperbaiki login screen yang tetap mengambil ruang setelah login.
-- `authGate` dan `appShell` sekarang benar-benar saling eksklusif melalui `[hidden]{display:none!important}`.
-- Cache-busting CSS/JS dinaikkan ke v1.9.2.
-
-
-## Revisi v1.9.2
-- Detail Batch tetap popup/modal besar dan tidak terpotong pada desktop.
-- Detail Batch menampilkan Produk / Variasi untuk setiap No. Pesanan.
-- Satu No. Pesanan dengan beberapa item tetap tampil sebagai satu pesanan dengan semua item di bawahnya.
-- Batch baru menyimpan snapshot item produk saat pencairan dibuat; batch lama memakai Master Order sebagai fallback.
-- Export Riwayat Batch sekarang menyertakan produk/variasi dan tanggal order.
+Deploy: replace index.html, app.js, styles.css sekaligus, lalu Ctrl+F5.
