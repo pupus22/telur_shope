@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#2563eb">
   <title>Order, Pembayaran & Pencairan Shopee</title>
-  <link rel="stylesheet" href="styles.css?v=1.10.0">
+  <link rel="stylesheet" href="styles.css?v=1.11.0">
 </head>
 <body>
   <div id="authGate" class="auth-gate">
@@ -45,7 +45,7 @@
       </nav>
       <div class="sidebar-footer">
         <div class="sidebar-note">
-          <strong>Firebase v1.10.0</strong>
+          <strong>Firebase v1.11.0</strong>
           <span>Master tersimpan online di Cloud Firestore.</span>
         </div>
         <div class="sidebar-account">
@@ -147,7 +147,7 @@
             <ul class="rules">
               <li>Hanya baris <b>Lihat berdasarkan = Order</b> yang digunakan.</li>
               <li>Satu No. Pesanan = satu Income.</li>
-              <li>Baris SKU diabaikan untuk mencegah penghasilan ganda.</li>
+              <li>Baris Order tetap menjadi total final resmi. Baris SKU disimpan hanya sebagai rincian final per produk untuk membandingkan estimasi.</li>
               <li>Status Batch lama tetap dipertahankan saat Income di-upload ulang.</li>
             </ul>
           </article>
@@ -198,9 +198,25 @@
             <label>Cari<input id="pendingSearch" type="search" placeholder="No pesanan / produk / variasi"></label>
             <div class="filter-action"><button id="resetPendingFilter" class="btn ghost">Reset Filter</button></div>
           </div>
-          <div class="summary-strip"><div><span>Pending Aktif</span><strong id="pendingCount">0</strong></div><div><span>Baris Produk</span><strong id="pendingLines">0</strong></div></div>
+          <div class="product-picker" id="pendingProductBox">
+            <div class="product-picker-head">
+              <div><strong>Filter Produk Pending</strong><span>Hanya produk yang saat ini memiliki pesanan Pending Pembayaran yang ditampilkan. Centang satu atau beberapa produk.</span></div>
+              <div class="product-picker-actions"><button id="pendingProductAll" type="button" class="btn ghost small">Pilih Semua</button><button id="pendingProductNone" type="button" class="btn ghost small">Kosongkan</button></div>
+            </div>
+            <div id="pendingProductChoices" class="product-check-grid"></div>
+          </div>
+          <div class="summary-strip pending-estimate-summary">
+            <div><span>Pending Aktif</span><strong id="pendingCount">0</strong></div>
+            <div><span>Baris Produk</span><strong id="pendingLines">0</strong></div>
+            <div><span>Sudah Diestimasi</span><strong id="pendingEstimatedCount">0</strong></div>
+            <div><span>Total Estimasi Filter</span><strong id="pendingEstimateTotal">Rp0</strong></div>
+          </div>
+          <div class="pending-estimate-actions">
+            <div id="pendingEstimateNote" class="message info">Estimasi manual disimpan terpisah dari data Shopee dan tidak ditimpa upload Excel berikutnya.</div>
+            <button id="createEstimateBatchBtn" type="button" class="btn success">Buat Batch Estimasi</button>
+          </div>
           <div id="pendingStatusSummary" class="mini-chip-row"></div>
-          <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Status Order</th><th>Tanggal Order</th><th>Aksi</th></tr></thead><tbody id="pendingBody"></tbody></table></div>
+          <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Status Order</th><th>Tanggal Order</th><th class="num">Estimasi Order</th><th>Status Estimasi</th><th>Aksi</th></tr></thead><tbody id="pendingBody"></tbody></table></div>
         </article>
       </section>
 
@@ -268,6 +284,18 @@
           </div>
         </article>
         <article class="card">
+          <div class="card-head"><div><h2>Estimasi vs Final Shopee</h2><p>Estimasi yang sudah dicairkan dibandingkan dengan Income final. Selisih yang belum diselesaikan otomatis menjadi saldo koreksi batch estimasi berikutnya.</p></div></div>
+          <div class="summary-strip">
+            <div><span>Estimasi Sudah Dicairkan</span><strong id="reconEstimatePaid">Rp0</strong></div>
+            <div><span>Final Shopee Terkait</span><strong id="reconEstimateFinal">Rp0</strong></div>
+            <div><span>Saldo Koreksi Belum Dipakai</span><strong id="reconCorrectionOpen">Rp0</strong></div>
+            <div><span>Order Ada Selisih</span><strong id="reconCorrectionCount">0</strong></div>
+          </div>
+          <div id="correctionMessage" class="message info">Belum ada estimasi yang sudah mendapatkan Income final.</div>
+          <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Rincian Produk: Estimasi → Final</th><th class="num">Estimasi Order</th><th class="num">Final Shopee</th><th class="num">Selisih</th><th>Status Koreksi</th></tr></thead><tbody id="estimateReconBody"></tbody></table></div>
+        </article>
+
+        <article class="card">
           <div class="card-head"><div><h2>Anomali Data</h2><p>Digunakan untuk memeriksa ketidaksesuaian upload dan perubahan data.</p></div></div>
           <div class="table-wrap"><table><thead><tr><th>Jenis</th><th>No. Pesanan</th><th>Keterangan</th></tr></thead><tbody id="anomalyBody"></tbody></table></div>
         </article>
@@ -303,6 +331,16 @@
       <button id="mobileMoreBtn" type="button" class="mobile-bottom-btn more-btn"><span>⋯</span><small>Lainnya</small></button>
     </nav>
   </div>
+
+  <dialog id="estimateDialog" class="dialog dialog-standard dialog-fullscreen">
+    <div class="dialog-card estimate-dialog-card">
+      <div class="card-head"><div><h2>Estimasi Pending per Item</h2><p id="estimateSubtitle">Isi estimasi berdasarkan nominal yang terlihat di web Shopee. Nilai final tetap mengikuti file Income.</p></div><button id="closeEstimateBtn" type="button" class="btn ghost">Tutup</button></div>
+      <div id="estimateMessage" class="message info">Estimasi manual tidak akan ditimpa saat Anda upload Excel Shopee terbaru.</div>
+      <div id="estimateLines" class="estimate-lines"></div>
+      <div class="estimate-total-bar"><span>Total Estimasi Order</span><strong id="estimateOrderTotal">Rp0</strong></div>
+      <div class="dialog-actions"><button id="clearEstimateBtn" type="button" class="btn ghost">Kosongkan Estimasi</button><button id="saveEstimateBtn" type="button" class="btn success">Simpan Estimasi</button></div>
+    </div>
+  </dialog>
 
   <dialog id="editDialog" class="dialog dialog-standard dialog-fullscreen">
     <div class="dialog-card edit-dialog-card">
@@ -346,6 +384,6 @@
 
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script>if(!window.XLSX){document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\\/script>')}</script>
-  <script type="module" src="app.js?v=1.10.0"></script>
+  <script type="module" src="app.js?v=1.11.0"></script>
 </body>
 </html>

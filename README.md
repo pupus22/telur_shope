@@ -1,39 +1,46 @@
-# Shopee Payout v1.9.4 — Firebase
+# Shopee Payout v1.11.0 — Firebase + Estimasi Pending
 
-Versi ini memisahkan status operasional Order dari status Pembayaran Shopee dan Pencairan.
+Versi ini menambahkan alur pencairan lebih awal berdasarkan estimasi manual dari web Shopee, lalu merekonsiliasinya dengan Income final dari Excel Shopee.
 
-## Aturan status
+## Fitur utama baru
 
-- **Pending Pembayaran (aktif)**: No. Pesanan ada di Order, status bukan Batal, tetapi belum ada di Income.
-- **Pesanan Batal**: status Order = Batal. Tidak ikut Pending Pembayaran dan tidak boleh masuk Batch otomatis.
-- **Siap Dicairkan**: Order valid/non-batal + sudah ada Income + belum memiliki Batch.
-- **Sudah Dicairkan**: Income sudah memiliki Batch ID.
-- **Ditahan / Perlu Dicek**: misalnya Pesanan Batal tetapi memiliki Income, atau Income tidak memiliki pasangan Order.
+- Pending Pembayaran memiliki **Harga Cepat** per No. Pesanan.
+- Estimasi diisi **per item / per unit**, subtotal otomatis mengikuti Qty.
+- Total estimasi per order dan total estimasi hasil filter tampil otomatis.
+- Estimasi manual disimpan di Firestore dan **tidak ditimpa upload Excel Shopee berikutnya**.
+- Tombol **Buat Batch Estimasi** mencairkan order pending yang estimasinya lengkap.
+- Batch Estimasi dapat otomatis membawa saldo koreksi dari order lama.
+- Saat Income final masuk, aplikasi menghubungkannya ke Batch Estimasi lama sehingga order tidak dicairkan penuh dua kali.
+- Baris `Order` pada Income tetap menjadi nilai final resmi per No. Pesanan.
+- Baris `Sku` pada Income sekarang disimpan sebagai rincian final per produk untuk membandingkan estimasi.
+- Rekonsiliasi menampilkan **Estimasi vs Final Shopee**, selisih per produk, total selisih per order, dan status koreksi.
+- Selisih positif menambah Batch Estimasi berikutnya; selisih negatif mengurangi Batch Estimasi berikutnya.
+- Koreksi yang sudah digunakan ditandai dengan ID Batch agar tidak digunakan dua kali.
 
-Jika Pesanan Batal memiliki Income, nominal tetap tercatat sebagai Pembayaran Shopee tetapi tidak masuk halaman Siap Dicairkan. Rekonsiliasi menempatkannya ke kategori Ditahan / Perlu Dicek.
+## Rumus koreksi
 
-## Perubahan v1.9.4
+`Selisih = Final Shopee - Estimasi yang sudah dicairkan`
 
-- Pending Pembayaran tidak lagi mencampur Pesanan Batal.
-- Menu baru **Pesanan Batal** dengan alasan pembatalan, status pembayaran, dan status pencairan.
-- Alasan Pembatalan dari file Order disimpan ke Firestore pada upload berikutnya.
-- Pending Pembayaran memiliki filter Tanggal Order, Status Order, dan pencarian.
-- Laporan Gabungan memiliki filter Status Order dan status `Ditahan / Perlu Dicek`.
-- Siap Dicairkan hanya mengambil pesanan valid/non-batal.
-- Sebelum Batch disimpan, Firestore Transaction mengecek ulang Income, Order, dan memastikan status Order tidak Batal.
-- Rekonsiliasi menjadi: **Total Pembayaran = Sudah Dicairkan + Siap Dicairkan + Ditahan/Perlu Dicek**.
-- Pesanan multi-produk tetap dianggap normal: 1 No. Pesanan = 1 Order, dengan banyak item.
+- Positif: batch berikutnya ditambah.
+- Negatif: batch berikutnya dikurangi.
+- Nol: klop.
+
+`Total Batch Estimasi Baru = Total estimasi order baru + saldo koreksi belum dipakai`
+
+Jika koreksi negatif lebih besar daripada estimasi batch baru, batch diblokir agar tidak menghasilkan pencairan negatif. Tambahkan lebih banyak order estimasi ke filter.
+
+## Sumber data
+
+- **Order Excel Shopee**: status, tanggal order, produk, variasi, qty.
+- **Input manual web**: estimasi pending per item.
+- **Income Excel Shopee – Order**: nominal final resmi per No. Pesanan.
+- **Income Excel Shopee – Sku**: rincian final per produk untuk rekonsiliasi.
+- **Firestore**: master, estimasi, batch, koreksi, riwayat upload dan audit.
+
+## Setelah deploy v1.11.0
+
+Upload ulang file Order + Income terbaru sekali. Ini diperlukan agar data Income lama di Firestore mendapatkan `skuDetails` untuk tampilan selisih per produk. Total final tetap berasal dari baris Order, sehingga tidak terjadi double count.
 
 ## Deploy GitHub Pages
 
-Replace file berikut secara bersamaan:
-
-- `index.html`
-- `app.js`
-- `styles.css`
-
-Setelah GitHub Pages selesai deploy, lakukan hard refresh (`Ctrl+F5`). Data Firestore yang sudah ada tidak dihapus oleh update aplikasi ini.
-
-## Catatan data lama
-
-Dokumen Order lama di Firestore sudah memiliki Status Order sehingga pemisahan Batal langsung bekerja. Field **Alasan Pembatalan** baru akan terisi setelah file Order terbaru di-upload ulang atau diedit manual.
+Replace `index.html`, `app.js`, dan `styles.css` sekaligus. Tunggu GitHub Pages selesai deploy, lalu lakukan hard refresh (`Ctrl+F5`) pada desktop atau reload halaman pada ponsel.

@@ -20,13 +20,14 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
   const STORES = { orders:'orders', incomes:'incomes', batches:'batches', uploads:'uploads', anomalies:'anomalies', edits:'edits' };
   let cache = { orders:[], incomes:[], batches:[], uploads:[], anomalies:[], edits:[] };
   let editingOrderNo = null;
+  let estimatingOrderNo = null;
   let appBound = false;
   let dataLoaded = false;
-  const productSelections = { report:null, ready:null };
+  const productSelections = { report:null, pending:null, ready:null };
 
   const $ = (id) => document.getElementById(id);
   const $$ = (sel) => [...document.querySelectorAll(sel)];
-  const APP_VERSION = '1.10.0';
+  const APP_VERSION = '1.11.0';
   function on(id, event, handler){
     const el = $(id);
     if(!el){ console.warn(`[${APP_VERSION}] Elemen #${id} tidak ditemukan.`); return false; }
@@ -71,9 +72,15 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
       orderDateTime:first.orderDateTime||'',
       lastImportedAt:first.lastImportedAt||new Date().toISOString(),
       lastManualEditAt:first.lastManualEditAt||null,
+      estimateBatchId:first.estimateBatchId||null,
+      estimatePaidAmount:Number(first.estimatePaidAmount)||0,
+      estimatePaidAt:first.estimatePaidAt||null,
+      correctionSettledBatchId:first.correctionSettledBatchId||null,
       items:lines.map(x=>({
         lineKey:x.lineKey||'', product:x.product||'', variation:x.variation||'', skuRef:x.skuRef||'',
         quantity:Number(x.quantity)||0, productCount:Number(x.productCount)||0, subtotal:Number(x.subtotal)||0,
+        estimateUnit:Number(x.estimateUnit)||0, estimateSubtotal:Number(x.estimateSubtotal)||0,
+        estimateUpdatedAt:x.estimateUpdatedAt||null,
         lastImportedAt:x.lastImportedAt||null, lastManualEditAt:x.lastManualEditAt||null
       }))
     };
@@ -85,6 +92,9 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
       lineKey:item.lineKey||`${orderNo}|item|${idx+1}`, orderNo, product:item.product||'', variation:item.variation||'', skuRef:item.skuRef||'',
       status:data.status||'', cancelReason:data.cancelReason||'', orderDate:data.orderDate||'', orderDateTime:data.orderDateTime||'',
       quantity:Number(item.quantity)||0, productCount:Number(item.productCount)||0, subtotal:Number(item.subtotal)||0,
+      estimateUnit:Number(item.estimateUnit)||0, estimateSubtotal:Number(item.estimateSubtotal)||0, estimateUpdatedAt:item.estimateUpdatedAt||null,
+      estimateBatchId:data.estimateBatchId||null, estimatePaidAmount:Number(data.estimatePaidAmount)||0, estimatePaidAt:data.estimatePaidAt||null,
+      correctionSettledBatchId:data.correctionSettledBatchId||null,
       lastImportedAt:item.lastImportedAt||data.lastImportedAt||null, lastManualEditAt:item.lastManualEditAt||data.lastManualEditAt||null
     }));
   }
@@ -166,7 +176,13 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
       else if(!inc) status='pending';
       else if(inc.batchId) status='batched';
       else status='ready';
-      return {orderNo,lines,income:inc,status,isCancelled,orderDate:first.orderDate||inc?.orderCreatedDate||'',orderStatus,cancelReason:first.cancelReason||'',releasedDate:inc?.releasedDate||'',amount:inc?.amount||0};
+      const estimateTotal=lines.reduce((sum,line)=>sum+(Number(line.estimateSubtotal)||0),0);
+      const estimateComplete=!!lines.length && lines.every(line=>(Number(line.estimateSubtotal)||0)>0);
+      const estimateBatchId=first.estimateBatchId||null;
+      const estimatePaidAmount=Number(first.estimatePaidAmount)||0;
+      const correctionDelta=(inc && estimatePaidAmount)?(Number(inc.amount)||0)-estimatePaidAmount:0;
+      const correctionSettledBatchId=first.correctionSettledBatchId||null;
+      return {orderNo,lines,income:inc,status,isCancelled,orderDate:first.orderDate||inc?.orderCreatedDate||'',orderStatus,cancelReason:first.cancelReason||'',releasedDate:inc?.releasedDate||'',amount:inc?.amount||0,estimateTotal,estimateComplete,estimateBatchId,estimatePaidAmount,estimatePaidAt:first.estimatePaidAt||null,correctionDelta,correctionSettledBatchId};
     }).sort((a,b)=>(b.releasedDate||b.orderDate).localeCompare(a.releasedDate||a.orderDate)||b.orderNo.localeCompare(a.orderNo));
   }
 
@@ -218,11 +234,22 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
   function parseIncomes(rows){
     const hi=headerIndex(rows,['Lihat berdasarkan','No. Pesanan','Total Penghasilan','Tanggal Dana Dilepaskan']);
     if(hi<0) throw new Error('Header sheet Penghasilan pada file Income tidak dikenali.');
-    const map=colMap(rows[hi]); const byOrder=new Map(); let ignoredSku=0, duplicateOrderRows=0;
+    const map=colMap(rows[hi]); const byOrder=new Map(); const skuByOrder=new Map(); let skuCount=0, duplicateOrderRows=0;
     for(const row of rows.slice(hi+1)){
       const view=normalizeText(val(row,map,'Lihat berdasarkan')).toLowerCase();
-      if(view && view!=='order'){ ignoredSku++; continue; }
       const orderNo=normalizeText(val(row,map,'No. Pesanan')); if(!orderNo) continue;
+      if(view==='sku'){
+        skuCount++;
+        if(!skuByOrder.has(orderNo)) skuByOrder.set(orderNo,[]);
+        skuByOrder.get(orderNo).push({
+          productId:normalizeText(val(row,map,'ID Produk')),
+          product:normalizeText(val(row,map,'Nama Produk')),
+          amount:parseMoney(val(row,map,'Total Penghasilan')),
+          productPrice:parseMoney(val(row,map,'Harga Produk'))
+        });
+        continue;
+      }
+      if(view && view!=='order') continue;
       const rec={
         orderNo,
         amount:parseMoney(val(row,map,'Total Penghasilan')),
@@ -236,7 +263,11 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
       if(byOrder.has(orderNo)) duplicateOrderRows++;
       byOrder.set(orderNo,rec);
     }
-    return {rows:[...byOrder.values()],ignoredSku,duplicateOrderRows};
+    for(const [orderNo,details] of skuByOrder){
+      const rec=byOrder.get(orderNo);
+      if(rec) rec.skuDetails=details;
+    }
+    return {rows:[...byOrder.values()],skuCount,duplicateOrderRows};
   }
 
   async function importFiles(){
@@ -251,12 +282,38 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
       const parsedOrders=parseOrders(orderRows); const parsedIncome=parseIncomes(incomeRows);
 
       const existingOrderKeys=new Set(cache.orders.map(x=>x.lineKey));
+      const existingByLine=new Map(cache.orders.map(x=>[x.lineKey,x]));
+      const existingGroups=orderGroups();
+      const usedEstimateLineKeys=new Set();
+      const mergedOrders=parsedOrders.map(n=>{
+        let old=existingByLine.get(n.lineKey);
+        if(old) usedEstimateLineKeys.add(old.lineKey);
+        if(!old){
+          old=(existingGroups.get(n.orderNo)||[]).find(x=>!usedEstimateLineKeys.has(x.lineKey) && normalizeText(x.product)===normalizeText(n.product) && normalizeText(x.variation)===normalizeText(n.variation) && normalizeText(x.skuRef)===normalizeText(n.skuRef));
+          if(old) usedEstimateLineKeys.add(old.lineKey);
+        }
+        const state=(existingGroups.get(n.orderNo)||[])[0]||{};
+        return {...n,
+          estimateUnit:Number(old?.estimateUnit)||0,
+          estimateSubtotal:Number(old?.estimateSubtotal)||0,
+          estimateUpdatedAt:old?.estimateUpdatedAt||null,
+          estimateBatchId:state.estimateBatchId||null,
+          estimatePaidAmount:Number(state.estimatePaidAmount)||0,
+          estimatePaidAt:state.estimatePaidAt||null,
+          correctionSettledBatchId:state.correctionSettledBatchId||null
+        };
+      });
+      const mergedOrderGroups=new Map();
+      for(const r of mergedOrders){if(!mergedOrderGroups.has(r.orderNo))mergedOrderGroups.set(r.orderNo,[]);mergedOrderGroups.get(r.orderNo).push(r);}
+
       const existingIncome=new Map(cache.incomes.map(x=>[x.orderNo,x]));
       const anomalies=[]; let changedAfterBatch=0;
       const mergedIncome=parsedIncome.rows.map(n=>{
         const old=existingIncome.get(n.orderNo);
+        const orderState=(mergedOrderGroups.get(n.orderNo)||existingGroups.get(n.orderNo)||[])[0]||{};
         if(old?.batchId) n.batchId=old.batchId;
-        else n.batchId=old?.batchId||null;
+        else if(orderState.estimateBatchId) n.batchId=orderState.estimateBatchId;
+        else n.batchId=null;
         if(old?.batchId && old.amount!==n.amount){
           changedAfterBatch++;
           anomalies.push({id:uid('ANOM'),type:'Pembayaran berubah setelah Pencairan',orderNo:n.orderNo,description:`Nominal master sebelumnya ${money(old.amount)}, upload terbaru ${money(n.amount)}. Batch ${old.batchId} tetap memakai snapshot lama.`,createdAt:new Date().toISOString()});
@@ -264,20 +321,20 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
         return n;
       });
 
-      await putMany(STORES.orders,parsedOrders);
+      await putMany(STORES.orders,mergedOrders);
       await putMany(STORES.incomes,mergedIncome);
       await putMany(STORES.anomalies,anomalies);
       const upload={
         uploadId:uid('UP'),createdAt:new Date().toISOString(),orderFile:of.name,incomeFile:inf.name,
-        orderLines:parsedOrders.length,orderUnique:new Set(parsedOrders.map(x=>x.orderNo)).size,
-        incomeCount:mergedIncome.length,orderNew:parsedOrders.filter(x=>!existingOrderKeys.has(x.lineKey)).length,
-        orderUpdated:parsedOrders.filter(x=>existingOrderKeys.has(x.lineKey)).length,
+        orderLines:mergedOrders.length,orderUnique:new Set(mergedOrders.map(x=>x.orderNo)).size,
+        incomeCount:mergedIncome.length,orderNew:mergedOrders.filter(x=>!existingOrderKeys.has(x.lineKey)).length,
+        orderUpdated:mergedOrders.filter(x=>existingOrderKeys.has(x.lineKey)).length,
         incomeNew:mergedIncome.filter(x=>!existingIncome.has(x.orderNo)).length,
         incomeUpdated:mergedIncome.filter(x=>existingIncome.has(x.orderNo)).length,
-        ignoredSku:parsedIncome.ignoredSku,incomeDuplicateRows:parsedIncome.duplicateOrderRows,changedAfterBatch
+        skuDetailRows:parsedIncome.skuCount,incomeDuplicateRows:parsedIncome.duplicateOrderRows,changedAfterBatch
       };
       await putMany(STORES.uploads,[upload]); await reloadCache(); renderAll();
-      setMessage('importMessage',`Import berhasil. ${upload.orderNew} baris Order baru, ${upload.orderUpdated} diperbarui; ${upload.incomeNew} Pembayaran baru, ${upload.incomeUpdated} diperbarui. ${parsedIncome.ignoredSku} baris SKU Income diabaikan.`,'success');
+      setMessage('importMessage',`Import berhasil. ${upload.orderNew} baris Order baru, ${upload.orderUpdated} diperbarui; ${upload.incomeNew} Pembayaran baru, ${upload.incomeUpdated} diperbarui. ${parsedIncome.skuCount} baris SKU Income disimpan sebagai rincian final per produk.`,'success');
     }catch(err){ console.error(err); setMessage('importMessage',err.message||String(err),'error'); }
     finally{$('importBtn').disabled=false;}
   }
@@ -287,8 +344,45 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     if(!lines.length) return '<span class="muted">Order detail tidak ditemukan</span>';
     return `<div class="product-lines">${lines.map(x=>`<div class="product-line"><b>${esc(x.product||'-')}</b><span class="muted">${esc(x.variation||'')}</span>${x.quantity?`<span class="muted">×${x.quantity}</span>`:''}</div>`).join('')}</div>`;
   }
+  function estimateProductHtml(lines){
+    if(!lines.length) return '<span class="muted">Order detail tidak ditemukan</span>';
+    return `<div class="product-lines">${lines.map(x=>`<div class="product-line pending-product-line"><b>${esc(x.product||'-')}</b><span class="muted">${esc(x.variation||'')}</span>${x.quantity?`<span class="muted">×${x.quantity}</span>`:''}<span class="line-estimate ${Number(x.estimateSubtotal)>0?'has-estimate':''}">${Number(x.estimateSubtotal)>0?`Est. ${money(x.estimateSubtotal)}`:'Belum estimasi'}</span></div>`).join('')}</div>`;
+  }
+  function estimateOrderTotal(lines){ return (lines||[]).reduce((sum,line)=>sum+(Number(line.estimateSubtotal)||0),0); }
+  function estimateIsComplete(lines){ return !!(lines||[]).length && lines.every(line=>(Number(line.estimateSubtotal)||0)>0); }
+  function estimateStatusBadge(rec){
+    if(rec.estimateBatchId) return `<span class="badge done">Sudah Dicairkan Estimasi · ${esc(rec.estimateBatchId)}</span>`;
+    if(rec.estimateComplete) return '<span class="badge paid">Sudah Diestimasi</span>';
+    if(rec.estimateTotal>0) return '<span class="badge review">Estimasi Belum Lengkap</span>';
+    return '<span class="badge neutral">Belum Diestimasi</span>';
+  }
+  function outstandingCorrections(){
+    return unionRecords().filter(r=>r.estimateBatchId && r.income && !r.correctionSettledBatchId && r.correctionDelta!==0);
+  }
+  function normalizeProductKey(v){ return normalizeText(v).toLowerCase(); }
+  function estimateFinalBreakdown(rec){
+    const est=new Map(), fin=new Map(), labels=new Map();
+    for(const line of rec.lines||[]){
+      const key=normalizeProductKey(line.product||'-'); labels.set(key,line.product||'-');
+      est.set(key,(est.get(key)||0)+(Number(line.estimateSubtotal)||0));
+    }
+    for(const sku of rec.income?.skuDetails||[]){
+      const key=normalizeProductKey(sku.product||'-'); labels.set(key,sku.product||'-');
+      fin.set(key,(fin.get(key)||0)+(Number(sku.amount)||0));
+    }
+    return [...new Set([...est.keys(),...fin.keys()])].map(key=>({product:labels.get(key)||key,estimate:est.get(key)||0,final:fin.get(key)||0,diff:(fin.get(key)||0)-(est.get(key)||0)}));
+  }
+  function correctionDetailHtml(rec){
+    const details=estimateFinalBreakdown(rec);
+    if(!details.length) return '<span class="muted">Rincian SKU final belum tersedia.</span>';
+    return `<div class="correction-product-list">${details.map(x=>`<div><b>${esc(x.product)}</b><span>${money(x.estimate)} → ${money(x.final)}</span><strong class="${x.diff>0?'diff-plus':x.diff<0?'diff-minus':''}">${x.diff>0?'+':''}${money(x.diff)}</strong></div>`).join('')}</div>`;
+  }
+
   function productNames(){
     return unique(cache.orders.map(x=>normalizeText(x.product))).sort((a,b)=>a.localeCompare(b,'id'));
+  }
+  function pendingProductNames(){
+    return unique(pendingBaseRecords().flatMap(r=>(r.lines||[]).map(x=>normalizeText(x.product))).filter(Boolean)).sort((a,b)=>a.localeCompare(b,'id'));
   }
   function productSelection(kind){ return productSelections[kind]; }
   function productLineMatchesSelection(line, selection){
@@ -308,7 +402,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     return {active:true,mixed:matched>0 && matched<lines.length,matched,total:lines.length};
   }
   function productSelectionSummary(kind){
-    const sel=productSelection(kind), names=productNames();
+    const sel=productSelection(kind), names=kind==='pending'?pendingProductNames():productNames();
     if(sel===null) return 'Semua Produk';
     if(!sel.size) return 'Tidak ada produk dipilih';
     const arr=[...sel].sort((a,b)=>a.localeCompare(b,'id'));
@@ -317,17 +411,18 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
   }
   function renderProductChoices(kind){
     const box=$(`${kind}ProductChoices`); if(!box) return;
-    const names=productNames(), sel=productSelection(kind);
+    const names=kind==='pending'?pendingProductNames():productNames(), sel=productSelection(kind);
     if(!names.length){ box.innerHTML='<div class="product-picker-empty">Belum ada produk di Master Order. Upload file Order terlebih dahulu.</div>'; return; }
     box.innerHTML=names.map((name,i)=>`<label class="product-check"><input type="checkbox" class="${kind}-product-check" data-product="${esc(name)}" ${sel===null||sel.has(name)?'checked':''}><span>${esc(name)}</span></label>`).join('');
     $$(`.${kind}-product-check`).forEach(cb=>cb.addEventListener('change',()=>{
       const all=$$(`.${kind}-product-check`), checked=all.filter(x=>x.checked).map(x=>x.dataset.product);
       productSelections[kind]=checked.length===all.length?null:new Set(checked);
-      if(kind==='report') renderReport(); else renderReady();
+      if(kind==='report') renderReport(); else if(kind==='pending') renderPending(); else renderReady();
     }));
   }
-  function selectAllProducts(kind){ productSelections[kind]=null; renderProductChoices(kind); if(kind==='report')renderReport();else renderReady(); }
-  function clearAllProducts(kind){ productSelections[kind]=new Set(); renderProductChoices(kind); if(kind==='report')renderReport();else renderReady(); }
+  function rerenderProductView(kind){ if(kind==='report')renderReport(); else if(kind==='pending')renderPending(); else renderReady(); }
+  function selectAllProducts(kind){ productSelections[kind]=null; renderProductChoices(kind); rerenderProductView(kind); }
+  function clearAllProducts(kind){ productSelections[kind]=new Set(); renderProductChoices(kind); rerenderProductView(kind); }
   function paymentBadge(rec){
     if(rec.isCancelled){
       return rec.income?'<span class="badge review">Ada Pembayaran · Perlu Dicek</span>':'<span class="badge cancelled">Tidak Ada Pembayaran</span>';
@@ -335,8 +430,9 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     return rec.income?'<span class="badge paid">Sudah Dibayar Shopee</span>':'<span class="badge pending">Belum Dibayar Shopee</span>';
   }
   function payoutBadge(rec){
+    if(!rec.income && rec.estimateBatchId)return `<span class="badge done">Dicairkan Estimasi · ${esc(rec.estimateBatchId)}</span>`;
     if(!rec.income)return '<span class="badge neutral">-</span>';
-    if(rec.income.batchId)return `<span class="badge done">Sudah Dicairkan · ${esc(rec.income.batchId)}</span>`;
+    if(rec.income.batchId)return `<span class="badge done">${rec.estimateBatchId===rec.income.batchId?'Dicairkan Estimasi':'Sudah Dicairkan'} · ${esc(rec.income.batchId)}</span>`;
     if(rec.isCancelled || rec.status==='incomeOnly') return '<span class="badge review">Ditahan / Perlu Dicek</span>';
     return '<span class="badge ready">Belum Dicairkan</span>';
   }
@@ -346,14 +442,17 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     const readyRecords=u.filter(x=>x.status==='ready');
     const ready=readyRecords.map(x=>x.income).filter(Boolean);
     const activeIncomes=inc.filter(x=>x.batchId);
+    const activeBatches=cache.batches.filter(b=>b.status==='active');
+    const batchOrderNos=new Set(activeBatches.flatMap(b=>(b.items||[]).map(i=>i.orderNo)));
+    const actualBatchTotal=activeBatches.reduce((sum,b)=>sum+(Number(b.totalSnapshot)||0),0);
     const cancelled=u.filter(x=>x.status==='cancelled');
     const cancelledWithIncome=cancelled.filter(x=>x.income);
     $('kpiOrders').textContent=groups.size; $('kpiOrderLines').textContent=`${cache.orders.length} baris produk`;
     $('kpiIncome').textContent=money(inc.reduce((s,x)=>s+x.amount,0)); $('kpiIncomeCount').textContent=`${inc.length} pesanan`;
     $('kpiReady').textContent=money(ready.reduce((s,x)=>s+x.amount,0)); $('kpiReadyCount').textContent=`${ready.length} pesanan valid`;
-    $('kpiBatched').textContent=money(activeIncomes.reduce((s,x)=>s+x.amount,0)); $('kpiBatchedCount').textContent=`${activeIncomes.length} pesanan masuk batch`;
+    $('kpiBatched').textContent=money(actualBatchTotal); $('kpiBatchedCount').textContent=`${batchOrderNos.size} pesanan pada batch aktif`;
     const counts={pending:0,ready:0,batched:0,incomeOnly:0,cancelled:0}; u.forEach(x=>{ if(counts[x.status]!==undefined) counts[x.status]++; });
-    $('dashPending').textContent=counts.pending; $('dashCancelled').textContent=counts.cancelled; $('dashReady').textContent=counts.ready; $('dashDone').textContent=activeIncomes.length; $('dashIncomeOnly').textContent=counts.incomeOnly;
+    $('dashPending').textContent=counts.pending; $('dashCancelled').textContent=counts.cancelled; $('dashReady').textContent=counts.ready; $('dashDone').textContent=batchOrderNos.size; $('dashIncomeOnly').textContent=counts.incomeOnly;
     if(cache.uploads[0]){
       const x=cache.uploads[0]; $('latestUpload').innerHTML=`<div class="status-list"><div><span>Waktu</span><strong>${esc(localDateTime(x.createdAt))}</strong></div><div><span>Order</span><strong>${x.orderUnique} pesanan / ${x.orderLines} baris</strong></div><div><span>Pembayaran</span><strong>${x.incomeCount} pesanan</strong></div><div><span>Data baru</span><strong>${x.orderNew} baris Order / ${x.incomeNew} Pembayaran</strong></div></div>`;
     }else $('latestUpload').textContent='Belum ada upload.';
@@ -363,7 +462,8 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
       ['Pesanan multi-produk (normal)',multiProduct],
       ['Pesanan Batal + ada Pembayaran',cancelledWithIncome.length],
       ['Pembayaran tanpa Order',counts.incomeOnly],
-      ['Pembayaran berubah setelah Pencairan',cache.anomalies.filter(x=>x.type==='Pembayaran berubah setelah Pencairan').length]
+      ['Pembayaran berubah setelah Pencairan',cache.anomalies.filter(x=>x.type==='Pembayaran berubah setelah Pencairan').length],
+      ['Saldo koreksi estimasi',`${outstandingCorrections().reduce((sum,r)=>sum+r.correctionDelta,0)>0?'+':''}${money(outstandingCorrections().reduce((sum,r)=>sum+r.correctionDelta,0))}`]
     ];
     $('anomalyGrid').innerHTML=an.map(([a,b])=>`<div class="anomaly-box"><span>${esc(a)}</span><strong>${b}</strong></div>`).join('');
   }
@@ -411,22 +511,41 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
   }
   function currentPending(){
     const base=pendingBaseRecords(); renderPendingStatusOptions(base);
-    const from=$('pendingFrom').value,to=$('pendingTo').value,status=$('pendingStatus').value,q=$('pendingSearch').value.trim().toLowerCase();
+    const from=$('pendingFrom').value,to=$('pendingTo').value,status=$('pendingStatus').value,products=productSelection('pending'),q=$('pendingSearch').value.trim().toLowerCase();
     return base.filter(r=>{
       if(from && (!r.orderDate||r.orderDate<from))return false;
       if(to && (!r.orderDate||r.orderDate>to))return false;
       if(status!=='all' && r.orderStatus!==status)return false;
+      if(!productLinesMatchSelection(r.lines||[],products))return false;
       if(q){const hay=[r.orderNo,r.orderStatus,...r.lines.flatMap(x=>[x.product,x.variation])].join(' ').toLowerCase();if(!hay.includes(q))return false;}
       return true;
     });
   }
   function renderPending(){
-    const rows=currentPending(); $('pendingCount').textContent=rows.length; $('pendingLines').textContent=rows.reduce((s,x)=>s+x.lines.length,0);
+    const rows=currentPending();
+    const estimated=rows.filter(r=>r.estimateTotal>0);
+    const eligible=rows.filter(r=>!r.estimateBatchId && r.estimateComplete);
+    const estimateTotal=rows.reduce((sum,r)=>sum+r.estimateTotal,0);
+    const eligibleTotal=eligible.reduce((sum,r)=>sum+r.estimateTotal,0);
+    const correctionNet=outstandingCorrections().reduce((sum,r)=>sum+r.correctionDelta,0);
+    const pendingSelection=productSelection('pending');
+    const mixedEligible=eligible.filter(r=>productMixInfo(r.lines||[],pendingSelection).mixed);
+    $('pendingCount').textContent=rows.length;
+    $('pendingLines').textContent=rows.reduce((s,x)=>s+x.lines.length,0);
+    if($('pendingEstimatedCount')) $('pendingEstimatedCount').textContent=estimated.length;
+    if($('pendingEstimateTotal')) $('pendingEstimateTotal').textContent=money(estimateTotal);
+    if($('createEstimateBatchBtn')) $('createEstimateBatchBtn').disabled=!eligible.length;
+    if($('pendingEstimateNote')){
+      const correctionText=correctionNet===0?'tidak ada saldo koreksi':`saldo koreksi ${correctionNet>0?'+':''}${money(correctionNet)}`;
+      setMessage('pendingEstimateNote',`${eligible.length} pesanan siap Batch Estimasi · dasar estimasi ${money(eligibleTotal)} · ${correctionText}.${mixedEligible.length?` ${mixedEligible.length} pesanan campuran akan memakai total seluruh item dalam No. Pesanan.`:''} Total batch berikutnya otomatis memasukkan koreksi yang belum diselesaikan.`,'info');
+    }
     const breakdown=Object.entries(rows.reduce((m,r)=>(m[r.orderStatus||'Tanpa Status']=(m[r.orderStatus||'Tanpa Status']||0)+1,m),{})).sort((a,b)=>a[0].localeCompare(b[0],'id'));
     $('pendingStatusSummary').innerHTML=breakdown.length?breakdown.map(([k,v])=>`<span class="mini-chip"><b>${esc(k)}</b> ${v}</span>`).join(''):'<span class="muted">Tidak ada pending aktif pada filter ini.</span>';
-    $('pendingBody').innerHTML=rows.length?rows.map(r=>`<tr><td><b>${esc(r.orderNo)}</b></td><td>${productHtml(r.lines)}</td><td>${esc(r.orderStatus||'-')}</td><td>${esc(r.orderDate||'-')}</td><td><button class="btn ghost edit-order-pending" data-order="${esc(r.orderNo)}">Edit</button></td></tr>`).join(''):'<tr><td colspan="5" class="muted">Tidak ada pesanan aktif yang menunggu Pembayaran Shopee.</td></tr>';
+    $('pendingBody').innerHTML=rows.length?rows.map(r=>`<tr><td><b>${esc(r.orderNo)}</b>${r.lines.length>1?`<br><span class="muted">${r.lines.length} item</span>`:''}</td><td>${estimateProductHtml(r.lines)}</td><td>${esc(r.orderStatus||'-')}</td><td>${esc(r.orderDate||'-')}</td><td class="num"><b>${r.estimateTotal?money(r.estimateTotal):'-'}</b></td><td>${estimateStatusBadge(r)}</td><td><div class="quick-actions"><button class="btn primary small quick-estimate" data-order="${esc(r.orderNo)}">Harga Cepat</button><button class="btn ghost small edit-order-pending" data-order="${esc(r.orderNo)}">Edit</button></div></td></tr>`).join(''):'<tr><td colspan="7" class="muted">Tidak ada pesanan aktif yang menunggu Pembayaran Shopee.</td></tr>';
+    $$('.quick-estimate').forEach(b=>b.addEventListener('click',()=>showEstimateOrder(b.dataset.order)));
     $$('.edit-order-pending').forEach(b=>b.addEventListener('click',()=>showEditOrder(b.dataset.order)));
   }
+
 
   function currentCancelled(){
     const from=$('cancelledFrom').value,to=$('cancelledTo').value,pay=$('cancelledPayment').value,q=$('cancelledSearch').value.trim().toLowerCase();
@@ -473,6 +592,8 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     const mixed=rows.filter(x=>productMixInfo(groups.get(x.orderNo)||[],selection).mixed);
     $('readyCount').textContent=rows.length; $('readyAmount').textContent=money(total); $('createBatchBtn').disabled=!rows.length;
     setMessage('readySearchNote',`${rows.length} No. Pesanan siap dicairkan · total ${money(total)} · Acuan tanggal: ${basisLabel} · Produk: ${selectedSummary}. Data yang tampil adalah hasil gabungan Order + Income.`,'info');
+    const correctionNet=outstandingCorrections().reduce((s,r)=>s+r.correctionDelta,0);
+    if($('batchMessage')) setMessage('batchMessage',`Nominal pesanan ${money(total)}${correctionNet?` · saldo koreksi ${correctionNet>0?'+':''}${money(correctionNet)} · total batch jika dibuat ${money(total+correctionNet)}`:' · tidak ada saldo koreksi estimasi yang belum dipakai.'}`,correctionNet?'warning':'info');
     const warning=$('productFilterWarning');
     if(selection!==null && selection.size && mixed.length){
       warning.style.display='block';
@@ -488,6 +609,56 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
   }
 
 
+  function currentEstimateBatchRows(){ return currentPending().filter(r=>!r.estimateBatchId && r.estimateComplete); }
+  async function makeEstimateBatch(){
+    const rows=currentEstimateBatchRows(); if(!rows.length)return;
+    const corrections=outstandingCorrections();
+    const baseTotal=rows.reduce((sum,r)=>sum+r.estimateTotal,0);
+    const correctionTotal=corrections.reduce((sum,r)=>sum+r.correctionDelta,0);
+    const payoutTotal=baseTotal+correctionTotal;
+    if(payoutTotal<0){
+      setMessage('pendingEstimateNote',`Batch belum dapat dibuat. Estimasi baru ${money(baseTotal)} masih lebih kecil dari koreksi negatif ${money(correctionTotal)}. Tambahkan pesanan estimasi sampai total pencairan minimal Rp0.`,'warning');
+      return;
+    }
+    const batchId=nextBatchId();
+    const products=productSelection('pending');
+    const productSummary=productSelectionSummary('pending');
+    const mixed=rows.filter(r=>productMixInfo(r.lines||[],products).mixed);
+    $('dialogTitle').textContent='Konfirmasi Batch Estimasi';
+    $('dialogContent').innerHTML=`<p>Batch ini mencairkan dana <b>sebelum Income final masuk</b>, menggunakan estimasi manual per item. Saat Income final datang, selisih akan dihitung otomatis.</p><div class="dialog-summary"><div><span>ID Batch</span><strong>${esc(batchId)}</strong></div><div><span>Pesanan Estimasi</span><strong>${rows.length}</strong></div><div><span>Dasar Estimasi</span><strong>${money(baseTotal)}</strong></div><div><span>Koreksi Sebelumnya</span><strong>${correctionTotal>0?'+':''}${money(correctionTotal)}</strong></div><div><span>Total Pencairan</span><strong>${money(payoutTotal)}</strong></div><div><span>Produk</span><strong>${esc(productSummary)}</strong></div></div>${mixed.length?`<div class="message warning">${mixed.length} pesanan mengandung produk terpilih dan produk lain. Karena pencairan dikunci per No. Pesanan, total estimasi seluruh item dalam pesanan tersebut ikut batch.</div>`:''}${corrections.length?`<div class="message info">${corrections.length} selisih order lama ikut diselesaikan pada batch ini dengan nilai net ${correctionTotal>0?'+':''}${money(correctionTotal)}.</div>`:''}`;
+    const dlg=$('confirmDialog'); dlg.showModal();
+    const result=await new Promise(resolve=>{const fn=()=>{dlg.removeEventListener('close',fn);resolve(dlg.returnValue)};dlg.addEventListener('close',fn)}); if(result!=='confirm')return;
+    if(rows.length>250){setMessage('pendingEstimateNote','Batch estimasi terlalu besar. Persempit filter menjadi maksimal 250 pesanan per batch.','warning');return;}
+    const createdAt=new Date().toISOString();
+    const batch={
+      batchId,createdAt,status:'active',type:'estimate',count:rows.length,totalSnapshot:payoutTotal,baseEstimateTotal:baseTotal,correctionTotal,
+      filterSnapshot:{dateBasis:'order',dateFrom:$('pendingFrom').value||'',dateTo:$('pendingTo').value||'',products:products===null?pendingProductNames():[...products],productSummary,search:$('pendingSearch').value.trim()||''},
+      items:rows.map(r=>({orderNo:r.orderNo,amountSnapshot:r.estimateTotal,estimateSnapshot:r.estimateTotal,releasedDate:'',orderDate:r.orderDate,productsSnapshot:r.lines.map(line=>({product:line.product||'',variation:line.variation||'',quantity:Number(line.quantity)||0,estimateUnit:Number(line.estimateUnit)||0,estimateSubtotal:Number(line.estimateSubtotal)||0}))})),
+      corrections:corrections.map(r=>({orderNo:r.orderNo,estimatePaidAmount:r.estimatePaidAmount,finalAmount:r.amount,delta:r.correctionDelta}))
+    };
+    try{
+      await runTransaction(db,async tx=>{
+        const orderRefs=rows.map(r=>doc(db,STORES.orders,r.orderNo));
+        const incomeRefs=rows.map(r=>doc(db,STORES.incomes,r.orderNo));
+        const correctionRefs=corrections.map(r=>doc(db,STORES.orders,r.orderNo));
+        const orderSnaps=[],incomeSnaps=[],correctionSnaps=[];
+        for(const ref of orderRefs) orderSnaps.push(await tx.get(ref));
+        for(const ref of incomeRefs) incomeSnaps.push(await tx.get(ref));
+        for(const ref of correctionRefs) correctionSnaps.push(await tx.get(ref));
+        const conflicts=[];
+        orderSnaps.forEach((snap,i)=>{const d=snap.data()||{};if(!snap.exists())conflicts.push(`${rows[i].orderNo} (Order hilang)`);else if(isCancelledStatus(d.status||''))conflicts.push(`${rows[i].orderNo} (Batal)`);else if(d.estimateBatchId)conflicts.push(`${rows[i].orderNo} (${d.estimateBatchId})`);});
+        incomeSnaps.forEach((snap,i)=>{if(snap.exists())conflicts.push(`${rows[i].orderNo} (Income sudah masuk)`);});
+        correctionSnaps.forEach((snap,i)=>{const d=snap.data()||{};if(!snap.exists()||d.correctionSettledBatchId)conflicts.push(`${corrections[i].orderNo} (koreksi berubah)`);});
+        if(conflicts.length) throw new Error(`Batch dibatalkan karena data berubah: ${conflicts.slice(0,6).join(', ')}${conflicts.length>6?'…':''}`);
+        tx.set(doc(db,STORES.batches,batchId),batch);
+        orderSnaps.forEach((snap,i)=>tx.update(orderRefs[i],{estimateBatchId:batchId,estimatePaidAmount:rows[i].estimateTotal,estimatePaidAt:createdAt}));
+        correctionSnaps.forEach((snap,i)=>tx.update(correctionRefs[i],{correctionSettledBatchId:batchId}));
+      });
+      await reloadCache(); renderAll();
+      setMessage('pendingEstimateNote',`${batchId} berhasil dibuat. Dasar estimasi ${money(baseTotal)} ${correctionTotal?`+ koreksi ${correctionTotal>0?'+':''}${money(correctionTotal)} `:''}= total pencairan ${money(payoutTotal)}.`,'success');
+    }catch(err){console.error(err);setMessage('pendingEstimateNote',err.message||String(err),'error');}
+  }
+
   function nextBatchId(){
     const d=todayISO().replaceAll('-','');
     const existing=cache.batches.filter(x=>x.batchId.startsWith(`BATCH-${d}-`)).length+1;
@@ -496,38 +667,48 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
   }
   async function makeBatch(){
     const rows=currentReady(); if(!rows.length)return;
-    const batchId=nextBatchId(), total=rows.reduce((s,x)=>s+x.amount,0), groups=orderGroups();
+    const batchId=nextBatchId(), baseTotal=rows.reduce((s,x)=>s+x.amount,0), groups=orderGroups();
+    const corrections=outstandingCorrections();
+    const correctionTotal=corrections.reduce((s,r)=>s+r.correctionDelta,0);
+    const total=baseTotal+correctionTotal;
+    if(total<0){setMessage('batchMessage',`Batch belum dapat dibuat. Nominal final baru ${money(baseTotal)} lebih kecil dari koreksi negatif ${money(correctionTotal)}. Tambahkan lebih banyak pesanan ke filter.`,'warning');return;}
     const products=productSelection('ready');
     const selectedProducts=products===null?productNames():[...products];
     const productSummary=productSelectionSummary('ready');
     const basisLabel='Tanggal Order';
     const mixed=rows.filter(x=>productMixInfo(groups.get(x.orderNo)||[],products).mixed);
-    $('dialogTitle').textContent='Konfirmasi Batch Pencairan'; $('dialogContent').innerHTML=`<p>Pesanan yang masuk batch akan dikunci agar tidak ikut pencairan berikutnya.</p><div class="dialog-summary"><div><span>ID Batch</span><strong>${esc(batchId)}</strong></div><div><span>Jumlah Pesanan</span><strong>${rows.length}</strong></div><div><span>Total Nominal</span><strong>${money(total)}</strong></div><div><span>Acuan Tanggal</span><strong>${esc(basisLabel)}</strong></div><div><span>Periode Filter</span><strong>${esc($('readyFrom').value||'Semua')} – ${esc($('readyTo').value||'Semua')}</strong></div><div><span>Filter Produk</span><strong>${esc(productSummary)}</strong></div><div><span>Pesanan Campuran</span><strong>${mixed.length}</strong></div></div>${mixed.length?`<div class="message warning">${mixed.length} pesanan memiliki produk yang dicentang dan produk lain dalam No. Pesanan yang sama. Seluruh nominal Income pesanan tersebut akan ikut batch.</div>`:''}`;
+    $('dialogTitle').textContent='Konfirmasi Batch Pencairan';
+    $('dialogContent').innerHTML=`<p>Pesanan yang masuk batch akan dikunci agar tidak ikut pencairan berikutnya. Saldo koreksi estimasi yang belum dipakai otomatis ditambahkan/dikurangkan.</p><div class="dialog-summary"><div><span>ID Batch</span><strong>${esc(batchId)}</strong></div><div><span>Jumlah Pesanan</span><strong>${rows.length}</strong></div><div><span>Nominal Pesanan</span><strong>${money(baseTotal)}</strong></div><div><span>Koreksi Estimasi</span><strong>${correctionTotal>0?'+':''}${money(correctionTotal)}</strong></div><div><span>Total Pencairan</span><strong>${money(total)}</strong></div><div><span>Acuan Tanggal</span><strong>${esc(basisLabel)}</strong></div><div><span>Periode Filter</span><strong>${esc($('readyFrom').value||'Semua')} – ${esc($('readyTo').value||'Semua')}</strong></div><div><span>Filter Produk</span><strong>${esc(productSummary)}</strong></div><div><span>Pesanan Campuran</span><strong>${mixed.length}</strong></div></div>${mixed.length?`<div class="message warning">${mixed.length} pesanan memiliki produk yang Anda centang dan produk lain dalam No. Pesanan yang sama. Seluruh nominal Income pesanan tersebut ikut batch.</div>`:''}${corrections.length?`<div class="message info">${corrections.length} selisih estimasi lama ikut diselesaikan pada batch ini, net ${correctionTotal>0?'+':''}${money(correctionTotal)}.</div>`:''}`;
     const dlg=$('confirmDialog'); dlg.showModal(); const result=await new Promise(resolve=>{const fn=()=>{dlg.removeEventListener('close',fn);resolve(dlg.returnValue)};dlg.addEventListener('close',fn)}); if(result!=='confirm')return;
     if(rows.length>300){ setMessage('batchMessage','Batch terlalu besar untuk satu transaksi aman. Persempit filter menjadi maksimal 300 pesanan per batch.','warning'); return; }
     const createdAt=new Date().toISOString();
-    const batch={batchId,createdAt,status:'active',count:rows.length,totalSnapshot:total,filterSnapshot:{dateBasis:'order',dateFrom:$('readyFrom').value||'',dateTo:$('readyTo').value||'',products:selectedProducts,productSummary:productSummary,search:$('readySearch').value.trim()||''},items:rows.map(x=>({orderNo:x.orderNo,amountSnapshot:x.amount,releasedDate:x.releasedDate,orderDate:readyOrderDate(x,groups),productsSnapshot:(groups.get(x.orderNo)||[]).map(line=>({product:line.product||'',variation:line.variation||'',quantity:Number(line.quantity)||0}))}))};
+    const batch={batchId,createdAt,status:'active',type:'final',count:rows.length,totalSnapshot:total,baseFinalTotal:baseTotal,correctionTotal,filterSnapshot:{dateBasis:'order',dateFrom:$('readyFrom').value||'',dateTo:$('readyTo').value||'',products:selectedProducts,productSummary:productSummary,search:$('readySearch').value.trim()||''},items:rows.map(x=>({orderNo:x.orderNo,amountSnapshot:x.amount,releasedDate:x.releasedDate,orderDate:readyOrderDate(x,groups),productsSnapshot:(groups.get(x.orderNo)||[]).map(line=>({product:line.product||'',variation:line.variation||'',quantity:Number(line.quantity)||0}))})),corrections:corrections.map(r=>({orderNo:r.orderNo,estimatePaidAmount:r.estimatePaidAmount,finalAmount:r.amount,delta:r.correctionDelta}))};
     try{
       await runTransaction(db,async tx=>{
         const incomeRefs=rows.map(x=>doc(db,STORES.incomes,x.orderNo));
         const orderRefs=rows.map(x=>doc(db,STORES.orders,x.orderNo));
-        const incomeSnaps=[], orderSnaps=[];
+        const correctionRefs=corrections.map(r=>doc(db,STORES.orders,r.orderNo));
+        const incomeSnaps=[], orderSnaps=[], correctionSnaps=[];
         for(const ref of incomeRefs) incomeSnaps.push(await tx.get(ref));
         for(const ref of orderRefs) orderSnaps.push(await tx.get(ref));
+        for(const ref of correctionRefs) correctionSnaps.push(await tx.get(ref));
         const conflicts=[];
         incomeSnaps.forEach((snap,i)=>{ if(!snap.exists()) conflicts.push(`${rows[i].orderNo} (Income hilang)`); else if(snap.data().batchId) conflicts.push(`${rows[i].orderNo} (${snap.data().batchId})`); });
         orderSnaps.forEach((snap,i)=>{ if(!snap.exists()) conflicts.push(`${rows[i].orderNo} (Order hilang)`); else if(isCancelledStatus(snap.data().status||'')) conflicts.push(`${rows[i].orderNo} (Status Batal)`); });
-        if(conflicts.length) throw new Error(`Pencairan dibatalkan karena ${conflicts.length} pesanan tidak lagi memenuhi syarat: ${conflicts.slice(0,5).join(', ')}${conflicts.length>5?'…':''}`);
+        correctionSnaps.forEach((snap,i)=>{const d=snap.data()||{};if(!snap.exists()||d.correctionSettledBatchId)conflicts.push(`${corrections[i].orderNo} (koreksi berubah)`);});
+        if(conflicts.length) throw new Error(`Pencairan dibatalkan karena ${conflicts.length} data tidak lagi memenuhi syarat: ${conflicts.slice(0,5).join(', ')}${conflicts.length>5?'…':''}`);
         tx.set(doc(db,STORES.batches,batchId),batch);
         incomeSnaps.forEach((snap,i)=>tx.update(incomeRefs[i],{batchId,lastBatchAt:createdAt}));
+        correctionSnaps.forEach((snap,i)=>tx.update(correctionRefs[i],{correctionSettledBatchId:batchId}));
       });
-      await reloadCache(); renderAll(); setMessage('batchMessage',`${batchId} berhasil dibuat: ${rows.length} pesanan, total ${money(total)}. Firestore mengunci No. Pesanan agar tidak dapat dicairkan ganda.`,'success');
+      await reloadCache(); renderAll(); setMessage('batchMessage',`${batchId} berhasil dibuat: nominal pesanan ${money(baseTotal)} ${correctionTotal?`+ koreksi ${correctionTotal>0?'+':''}${money(correctionTotal)} `:''}= total ${money(total)}.`,'success');
     }catch(err){ console.error(err); setMessage('batchMessage',err.message||String(err),'error'); }
   }
 
 
+
   function renderHistory(){
-    $('batchHistoryBody').innerHTML=cache.batches.length?cache.batches.map(b=>`<tr><td><b>${esc(b.batchId)}</b></td><td>${esc(localDateTime(b.createdAt))}</td><td>${b.status==='active'?'<span class="badge done">Aktif</span>':'<span class="badge cancelled">Dibatalkan</span>'}</td><td>${b.count}</td><td class="num">${money(b.totalSnapshot)}</td><td><button class="btn ghost detail-batch" data-id="${esc(b.batchId)}">Detail</button>${b.status==='active'?` <button class="btn ghost cancel-batch" data-id="${esc(b.batchId)}">Batalkan</button>`:''}</td></tr>`).join(''):'<tr><td colspan="6" class="muted">Belum ada Batch Pencairan.</td></tr>';
+    $('batchHistoryBody').innerHTML=cache.batches.length?cache.batches.map(b=>`<tr><td><b>${esc(b.batchId)}</b></td><td>${esc(localDateTime(b.createdAt))}</td><td>${b.status==='active'?'<span class="badge done">Aktif</span>':'<span class="badge cancelled">Dibatalkan</span>'}${b.type==='estimate'?' <span class="badge pending">Estimasi</span>':''}</td><td>${b.count}</td><td class="num">${money(b.totalSnapshot)}</td><td><button class="btn ghost detail-batch" data-id="${esc(b.batchId)}">Detail</button>${b.status==='active'?` <button class="btn ghost cancel-batch" data-id="${esc(b.batchId)}">Batalkan</button>`:''}</td></tr>`).join(''):'<tr><td colspan="6" class="muted">Belum ada Batch Pencairan.</td></tr>';
     $$('.detail-batch').forEach(x=>x.addEventListener('click',()=>showBatch(x.dataset.id))); $$('.cancel-batch').forEach(x=>x.addEventListener('click',()=>cancelBatch(x.dataset.id)));
   }
   function showBatch(id){
@@ -537,26 +718,47 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     const basis=fs.dateBasis || (fs.source==='order'?'order':'released');
     const basisLabel=basis==='order'?'Tanggal Order':'Tanggal Dana Dilepas';
     const periodFrom=fs.dateFrom||fs.releasedFrom||'Semua', periodTo=fs.dateTo||fs.releasedTo||'Semua';
-    $('detailSubtitle').textContent=`${b.status==='active'?'Aktif':'Dibatalkan'} · ${localDateTime(b.createdAt)} · ${b.count} pesanan · ${money(b.totalSnapshot)} · Acuan ${basisLabel}: ${periodFrom} – ${periodTo}${(fs.productSummary||fs.product)?` · Produk ${fs.productSummary||fs.product}`:''}`;
+    $('detailSubtitle').textContent=`${b.status==='active'?'Aktif':'Dibatalkan'} · ${b.type==='estimate'?'Batch Estimasi':'Batch Final'} · ${localDateTime(b.createdAt)} · ${b.count} pesanan · ${money(b.totalSnapshot)}${b.type==='estimate'?` (estimasi ${money(b.baseEstimateTotal||0)} ${b.correctionTotal?`+ koreksi ${b.correctionTotal>0?'+':''}${money(b.correctionTotal)}`:''})`:''} · Acuan ${basisLabel}: ${periodFrom} – ${periodTo}${(fs.productSummary||fs.product)?` · Produk ${fs.productSummary||fs.product}`:''}`;
     const groups=orderGroups();
-    $('detailBatchBody').innerHTML=(b.items||[]).map(x=>{
+    const itemRows=(b.items||[]).map(x=>{
       const lines=(Array.isArray(x.productsSnapshot)&&x.productsSnapshot.length)?x.productsSnapshot:(groups.get(x.orderNo)||[]);
       const orderDate=x.orderDate || (groups.get(x.orderNo)?.[0]?.orderDate) || '-';
       return `<tr><td class="batch-order-no"><b>${esc(x.orderNo)}</b>${lines.length>1?`<div class="muted batch-item-count">${lines.length} item dalam 1 pesanan</div>`:''}</td><td>${lines.length?productHtml(lines):'<span class="muted">Detail produk tidak ditemukan di Master Order</span>'}</td><td>${esc(orderDate)}</td><td>${esc(x.releasedDate||'-')}</td><td class="num"><b>${money(x.amountSnapshot)}</b></td></tr>`;
     }).join('');
+    const correctionRows=(b.corrections||[]).map(c=>`<tr class="correction-batch-row"><td><b>Koreksi · ${esc(c.orderNo)}</b></td><td><span class="muted">Final Shopee ${money(c.finalAmount)} − Estimasi dicairkan ${money(c.estimatePaidAmount)}</span></td><td>-</td><td>-</td><td class="num"><b class="${c.delta>0?'diff-plus':c.delta<0?'diff-minus':''}">${c.delta>0?'+':''}${money(c.delta)}</b></td></tr>`).join('');
+    $('detailBatchBody').innerHTML=itemRows+correctionRows+`<tr class="batch-total-row"><td colspan="4"><b>TOTAL BATCH</b></td><td class="num"><b>${money(b.totalSnapshot)}</b></td></tr>`;
     $('detailDialog').showModal();
   }
 
   async function cancelBatch(id){
     const b=cache.batches.find(x=>x.batchId===id); if(!b||b.status!=='active')return;
-    $('dialogTitle').textContent='Batalkan Batch'; $('dialogContent').innerHTML=`<p>Batch <b>${esc(id)}</b> akan ditandai <b>DIBATALKAN</b>. No. Pesanan di dalamnya akan kembali menjadi Siap Dicairkan.</p><div class="dialog-summary"><div><span>Pesanan</span><strong>${b.count}</strong></div><div><span>Nominal Snapshot</span><strong>${money(b.totalSnapshot)}</strong></div></div>`;
+    $('dialogTitle').textContent='Batalkan Batch'; $('dialogContent').innerHTML=`<p>Batch <b>${esc(id)}</b> akan ditandai <b>DIBATALKAN</b>. ${b.type==='estimate'?'Estimasi pada pesanan tetap tersimpan, tetapi status sudah dicairkan estimasi dan koreksi batch ini akan dilepas.':'No. Pesanan di dalamnya akan kembali menjadi Siap Dicairkan.'}</p><div class="dialog-summary"><div><span>Pesanan</span><strong>${b.count}</strong></div><div><span>Nominal Snapshot</span><strong>${money(b.totalSnapshot)}</strong></div></div>`;
     const dlg=$('confirmDialog'); dlg.showModal(); const result=await new Promise(resolve=>{const fn=()=>{dlg.removeEventListener('close',fn);resolve(dlg.returnValue)};dlg.addEventListener('close',fn)}); if(result!=='confirm')return;
-    const updatedBatch={...b,status:'cancelled',cancelledAt:new Date().toISOString()}; const ids=new Set(b.items.map(x=>x.orderNo)); const incomeUpdates=cache.incomes.filter(x=>ids.has(x.orderNo)&&x.batchId===id).map(x=>({...x,batchId:null})); await putMany(STORES.batches,[updatedBatch]); await putMany(STORES.incomes,incomeUpdates); await reloadCache(); renderAll();
+    const updatedBatch={...b,status:'cancelled',cancelledAt:new Date().toISOString()};
+    const ids=new Set((b.items||[]).map(x=>x.orderNo));
+    const incomeUpdates=cache.incomes.filter(x=>ids.has(x.orderNo)&&x.batchId===id).map(x=>({...x,batchId:null}));
+    await putMany(STORES.batches,[updatedBatch]);
+    if(incomeUpdates.length) await putMany(STORES.incomes,incomeUpdates);
+    const groups=orderGroups(); const orderUpdates=[];
+    if(b.type==='estimate'){
+      for(const orderNo of ids){
+        const lines=groups.get(orderNo)||[];
+        if(lines[0]?.estimateBatchId===id) orderUpdates.push(...lines.map(line=>({...line,estimateBatchId:null,estimatePaidAmount:0,estimatePaidAt:null})));
+      }
+    }
+    const correctionOrders=new Set((b.corrections||[]).map(x=>x.orderNo));
+    for(const orderNo of correctionOrders){
+      const lines=groups.get(orderNo)||[];
+      if(lines[0]?.correctionSettledBatchId===id) orderUpdates.push(...lines.map(line=>({...line,correctionSettledBatchId:null})));
+    }
+    if(orderUpdates.length) await putMany(STORES.orders,orderUpdates);
+    await reloadCache(); renderAll();
   }
+
 
   function recalcBatch(batch){
     const items=batch.items||[];
-    return {...batch,count:items.length,totalSnapshot:items.reduce((s,x)=>s+(Number(x.amountSnapshot)||0),0)};
+    return {...batch,count:items.length,totalSnapshot:items.reduce((s,x)=>s+(Number(x.amountSnapshot)||0),0)+(Number(batch.correctionTotal)||0)};
   }
   async function updateBatchMembership(oldOrderNo,newOrderNo,oldBatchId,newBatchId,amount,releasedDate){
     const changed=[];
@@ -573,6 +775,64 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     }
     if(changed.length) await putMany(STORES.batches,changed);
   }
+  function recalcEstimateDialog(){
+    const nodes=$$('#estimateLines .estimate-line');
+    let total=0;
+    nodes.forEach(node=>{
+      const qty=Math.max(1,Number(node.dataset.qty)||1);
+      const unit=Math.max(0,Number(node.querySelector('.estimate-unit')?.value)||0);
+      const subtotal=Math.round(unit*qty);
+      const out=node.querySelector('.estimate-subtotal');
+      if(out) out.textContent=money(subtotal);
+      total+=subtotal;
+    });
+    if($('estimateOrderTotal')) $('estimateOrderTotal').textContent=money(total);
+    return total;
+  }
+  function showEstimateOrder(orderNo){
+    const rec=unionRecords().find(x=>x.orderNo===orderNo); if(!rec)return;
+    estimatingOrderNo=orderNo;
+    if($('estimateSubtitle')) $('estimateSubtitle').textContent=`No. Pesanan ${orderNo} · ${rec.lines.length} item. Isi estimasi per unit; subtotal dihitung otomatis sesuai qty.`;
+    $('estimateLines').innerHTML=rec.lines.map((line,i)=>{
+      const qty=Math.max(1,Number(line.quantity)||1);
+      const unit=Number(line.estimateUnit)||((Number(line.estimateSubtotal)||0)/qty)||0;
+      return `<div class="estimate-line" data-key="${esc(line.lineKey)}" data-qty="${qty}"><div class="estimate-line-index">Item ${i+1}</div><div class="estimate-product"><b>${esc(line.product||'-')}</b><span>${esc(line.variation||'-')} · Qty ${qty}</span></div><label>Estimasi / unit<input class="estimate-unit" type="number" min="0" step="1" value="${unit?Math.round(unit):''}" placeholder="0"></label><div class="estimate-line-total"><span>Subtotal</span><strong class="estimate-subtotal">${money(Number(line.estimateSubtotal)||0)}</strong></div></div>`;
+    }).join('');
+    $$('#estimateLines .estimate-unit').forEach(inp=>inp.addEventListener('input',recalcEstimateDialog));
+    const locked=!!rec.estimateBatchId;
+    $('saveEstimateBtn').disabled=locked;
+    $('clearEstimateBtn').disabled=locked;
+    setMessage('estimateMessage',locked?`Estimasi ini sudah dipakai pada ${rec.estimateBatchId}. Nilai dikunci agar snapshot pencairan tidak berubah.`:'Estimasi manual disimpan terpisah dari data asli Shopee dan tidak akan ditimpa upload Excel berikutnya.',locked?'warning':'info');
+    recalcEstimateDialog();
+    $('estimateDialog').showModal();
+  }
+  async function saveEstimateOrder(){
+    if(!estimatingOrderNo)return;
+    const rec=unionRecords().find(x=>x.orderNo===estimatingOrderNo); if(!rec)return;
+    if(rec.estimateBatchId){setMessage('estimateMessage','Estimasi sudah dipakai dalam Batch dan tidak dapat diubah.','warning');return;}
+    const values=new Map();
+    $$('#estimateLines .estimate-line').forEach(node=>{
+      const qty=Math.max(1,Number(node.dataset.qty)||1);
+      const unit=Math.max(0,Number(node.querySelector('.estimate-unit')?.value)||0);
+      values.set(node.dataset.key,{unit:Math.round(unit),subtotal:Math.round(unit*qty)});
+    });
+    const now=new Date().toISOString();
+    const lines=cache.orders.filter(x=>x.orderNo===estimatingOrderNo).map(line=>{
+      const v=values.get(line.lineKey)||{unit:Number(line.estimateUnit)||0,subtotal:Number(line.estimateSubtotal)||0};
+      return {...line,estimateUnit:v.unit,estimateSubtotal:v.subtotal,estimateUpdatedAt:now,lastManualEditAt:now};
+    });
+    await putMany(STORES.orders,lines);
+    await putMany(STORES.edits,[{id:uid('EDIT'),createdAt:now,orderNoBefore:estimatingOrderNo,orderNoAfter:estimatingOrderNo,description:`Estimasi pending per item diperbarui. Total estimasi ${money(lines.reduce((s,x)=>s+(Number(x.estimateSubtotal)||0),0))}.`}]);
+    await reloadCache(); renderAll(); $('estimateDialog').close(); estimatingOrderNo=null;
+  }
+  async function clearEstimateOrder(){
+    if(!estimatingOrderNo)return;
+    const rec=unionRecords().find(x=>x.orderNo===estimatingOrderNo); if(!rec||rec.estimateBatchId)return;
+    const now=new Date().toISOString();
+    const lines=cache.orders.filter(x=>x.orderNo===estimatingOrderNo).map(line=>({...line,estimateUnit:0,estimateSubtotal:0,estimateUpdatedAt:now,lastManualEditAt:now}));
+    await putMany(STORES.orders,lines); await reloadCache(); renderAll(); $('estimateDialog').close(); estimatingOrderNo=null;
+  }
+
   function showEditOrder(orderNo){
     const rec=unionRecords().find(x=>x.orderNo===orderNo); if(!rec)return;
     editingOrderNo=orderNo;
@@ -595,6 +855,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     if(!newNo){setMessage('editMessage','No. Pesanan tidak boleh kosong.','error');return;}
     if(newNo!==oldNo && unionRecords().some(x=>x.orderNo===newNo) && !confirm(`No. Pesanan ${newNo} sudah ada. Data akan digabung ke No. Pesanan tersebut. Lanjutkan?`))return;
     const oldLines=cache.orders.filter(x=>x.orderNo===oldNo), oldIncome=cache.incomes.find(x=>x.orderNo===oldNo)||null;
+    if(oldLines[0]?.estimateBatchId && newNo!==oldNo){setMessage('editMessage',`No. Pesanan sudah terkunci pada Batch Estimasi ${oldLines[0].estimateBatchId}. Batalkan batch tersebut terlebih dahulu sebelum mengubah No. Pesanan.`,'warning');return;}
     const lineNodes=[...$('editLines').querySelectorAll('.edit-line')];
     const updatedLines=oldLines.map((line,i)=>{
       const node=lineNodes[i];
@@ -637,26 +898,55 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     const heldRecs=union.filter(x=>x.income && !x.income.batchId && (x.status==='cancelled' || x.status==='incomeOnly')), held=heldRecs.map(x=>x.income);
     const batTotal=bat.reduce((s,x)=>s+x.amount,0), readyTotal=ready.reduce((s,x)=>s+x.amount,0), heldTotal=held.reduce((s,x)=>s+x.amount,0), diff=total-batTotal-readyTotal-heldTotal;
     $('reconIncome').textContent=money(total); $('reconIncomeN').textContent=`${cache.incomes.length} pesanan`; $('reconBatched').textContent=money(batTotal); $('reconBatchedN').textContent=`${bat.length} pesanan`; $('reconReady').textContent=money(readyTotal); $('reconReadyN').textContent=`${ready.length} pesanan`; $('reconHeld').textContent=money(heldTotal); $('reconHeldN').textContent=`${held.length} pesanan`;
-    setMessage('reconMessage',diff===0?'Rekonsiliasi seimbang. Semua Pembayaran terbagi menjadi Sudah Dicairkan, Siap Dicairkan, atau Ditahan untuk diperiksa.':`Ada selisih ${money(diff)} yang belum terklasifikasi. Data perlu diperiksa.`,diff===0?'success':'error');
+    setMessage('reconMessage',diff===0?'Rekonsiliasi final Shopee seimbang. Semua Pembayaran terbagi menjadi Sudah Dicairkan, Siap Dicairkan, atau Ditahan untuk diperiksa.':`Ada selisih ${money(diff)} yang belum terklasifikasi. Data perlu diperiksa.`,diff===0?'success':'error');
+
+    const estimatedFinal=union.filter(r=>r.estimateBatchId && r.income).sort((a,b)=>(b.releasedDate||'').localeCompare(a.releasedDate||''));
+    const estPaid=estimatedFinal.reduce((sum,r)=>sum+r.estimatePaidAmount,0);
+    const finalPaid=estimatedFinal.reduce((sum,r)=>sum+r.amount,0);
+    const open=estimatedFinal.filter(r=>r.correctionDelta!==0 && !r.correctionSettledBatchId);
+    const openTotal=open.reduce((sum,r)=>sum+r.correctionDelta,0);
+    if($('reconEstimatePaid')) $('reconEstimatePaid').textContent=money(estPaid);
+    if($('reconEstimateFinal')) $('reconEstimateFinal').textContent=money(finalPaid);
+    if($('reconCorrectionOpen')) $('reconCorrectionOpen').textContent=`${openTotal>0?'+':''}${money(openTotal)}`;
+    if($('reconCorrectionCount')) $('reconCorrectionCount').textContent=open.length;
+    if($('correctionMessage')){
+      if(!estimatedFinal.length) setMessage('correctionMessage','Belum ada Batch Estimasi yang sudah mendapatkan Income final.','info');
+      else if(openTotal===0 && !open.length) setMessage('correctionMessage','Semua estimasi yang sudah final sudah klop atau koreksinya sudah diterapkan ke batch berikutnya.','success');
+      else setMessage('correctionMessage',`Saldo koreksi belum dipakai: ${openTotal>0?'+':''}${money(openTotal)} dari ${open.length} order. Nilai ini otomatis masuk Batch Estimasi berikutnya.`,'warning');
+    }
+    if($('estimateReconBody')) $('estimateReconBody').innerHTML=estimatedFinal.length?estimatedFinal.map(r=>`<tr><td><b>${esc(r.orderNo)}</b><br><span class="muted">${esc(r.estimateBatchId)}</span></td><td>${correctionDetailHtml(r)}</td><td class="num">${money(r.estimatePaidAmount)}</td><td class="num">${money(r.amount)}</td><td class="num"><b class="${r.correctionDelta>0?'diff-plus':r.correctionDelta<0?'diff-minus':''}">${r.correctionDelta>0?'+':''}${money(r.correctionDelta)}</b></td><td>${r.correctionDelta===0?'<span class="badge paid">Klop</span>':r.correctionSettledBatchId?`<span class="badge done">Dikoreksi · ${esc(r.correctionSettledBatchId)}</span>`:'<span class="badge review">Belum Dikoreksi</span>'}</td></tr>`).join(''):'<tr><td colspan="6" class="muted">Belum ada data estimasi yang sudah mendapatkan final Shopee.</td></tr>';
+
     const rows=[...cache.anomalies];
     union.filter(x=>x.status==='incomeOnly').forEach(x=>rows.push({type:'Pembayaran tanpa Order',orderNo:x.orderNo,description:'No. Pesanan ada pada file Income tetapi detail Order belum ada di master. Pembayaran ditahan dari Batch otomatis.'}));
     union.filter(x=>x.status==='cancelled' && x.income).forEach(x=>rows.push({type:'Pesanan Batal memiliki Pembayaran',orderNo:x.orderNo,description:x.income.batchId?`Pesanan berstatus Batal tetapi sudah masuk ${x.income.batchId}. Periksa riwayat dan alasan pembatalan.`:`Pesanan berstatus Batal tetapi memiliki Pembayaran ${money(x.amount)}. Pembayaran ditahan dan tidak masuk Siap Dicairkan.`}));
     $('anomalyBody').innerHTML=rows.length?rows.sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))).map(x=>`<tr><td>${esc(x.type)}</td><td>${esc(x.orderNo||'-')}</td><td>${esc(x.description||'-')}</td></tr>`).join(''):'<tr><td colspan="3" class="muted">Tidak ada anomali yang perlu diperiksa.</td></tr>';
   }
+
   function renderEditHistory(){ const body=$('editHistoryBody'); if(!body)return; body.innerHTML=cache.edits.length?cache.edits.slice(0,100).map(x=>`<tr><td>${esc(localDateTime(x.createdAt))}</td><td>${esc(x.orderNoBefore||'-')}</td><td>${esc(x.orderNoAfter||'-')}</td><td>${esc(x.description||'-')}</td></tr>`).join(''):'<tr><td colspan="4" class="muted">Belum ada edit manual.</td></tr>'; }
-  function renderAll(){ renderProductChoices('report');renderProductChoices('ready');renderReportOrderStatusOptions();renderDashboard();renderUploads();renderReport();renderPending();renderCancelled();renderReady();renderHistory();renderRecon();renderEditHistory(); $('dbStatus').textContent=`Master: ${orderGroups().size} order · ${cache.incomes.length} pembayaran`; }
+  function renderAll(){ renderProductChoices('report');renderProductChoices('pending');renderProductChoices('ready');renderReportOrderStatusOptions();renderDashboard();renderUploads();renderReport();renderPending();renderCancelled();renderReady();renderHistory();renderRecon();renderEditHistory(); $('dbStatus').textContent=`Master: ${orderGroups().size} order · ${cache.incomes.length} pembayaran`; }
 
   function exportXlsxReport(){
     if(!window.XLSX){alert('Library Excel belum tersedia.');return;} const rows=currentReport();
     const detail=rows.map(r=>({
       'No. Pesanan':r.orderNo,'Nama Produk':r.lines.map(x=>x.product).join(' | '),'Variasi':r.lines.map(x=>x.variation).join(' | '),'Status':r.orderStatus||'',
-      'Pembayaran':r.income?r.amount:'','Tanggal Order':r.orderDate||'','Tanggal Pembayaran / Dana Dilepas':r.releasedDate||'','Status Pencairan':r.income?.batchId|| (r.status==='ready'?'Belum Dicairkan':r.status==='pending'?'Belum Dibayar Shopee':r.status==='cancelled'&&r.income?'Ditahan / Perlu Dicek':r.status==='cancelled'?'Pesanan Batal':r.status==='incomeOnly'?'Ditahan / Pembayaran tanpa Order':'')
+      'Estimasi Saat Ini':r.estimateTotal||'','Estimasi Sudah Dicairkan':r.estimatePaidAmount||'','Pembayaran Final Shopee':r.income?r.amount:'','Selisih Final - Estimasi':r.estimateBatchId&&r.income?r.correctionDelta:'',
+      'Tanggal Order':r.orderDate||'','Tanggal Pembayaran / Dana Dilepas':r.releasedDate||'','Status Pencairan':r.income?.batchId||r.estimateBatchId|| (r.status==='ready'?'Belum Dicairkan':r.status==='pending'?'Belum Dibayar Shopee':r.status==='cancelled'&&r.income?'Ditahan / Perlu Dicek':r.status==='cancelled'?'Pesanan Batal':r.status==='incomeOnly'?'Ditahan / Pembayaran tanpa Order':'')
     }));
     const wb=XLSX.utils.book_new(), ws=XLSX.utils.json_to_sheet(detail); XLSX.utils.book_append_sheet(wb,ws,'Laporan'); const sum=XLSX.utils.aoa_to_sheet([['Jumlah Pesanan',rows.length],['Total Penghasilan',rows.reduce((s,x)=>s+x.amount,0)]]); XLSX.utils.book_append_sheet(wb,sum,'Ringkasan'); XLSX.writeFile(wb,`Laporan_Pembayaran_Pencairan_${todayISO()}.xlsx`);
   }
   function exportBatchXlsx(){
-    if(!window.XLSX){alert('Library Excel belum tersedia.');return;} const rows=[]; const groups=orderGroups(); cache.batches.forEach(b=>b.items.forEach(i=>{const lines=(Array.isArray(i.productsSnapshot)&&i.productsSnapshot.length)?i.productsSnapshot:(groups.get(i.orderNo)||[]); rows.push({'ID Batch':b.batchId,'Status':b.status,'Dibuat':b.createdAt,'No. Pesanan':i.orderNo,'Produk / Variasi':lines.map(x=>`${x.product||'-'}${x.variation?` | ${x.variation}`:''}${x.quantity?` x${x.quantity}`:''}`).join(' ; '),'Tanggal Order':i.orderDate||lines[0]?.orderDate||'','Tanggal Dana Dilepas':i.releasedDate,'Nominal Snapshot':i.amountSnapshot});})); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Riwayat Batch'); XLSX.writeFile(wb,`Riwayat_Batch_${todayISO()}.xlsx`);
+    if(!window.XLSX){alert('Library Excel belum tersedia.');return;}
+    const rows=[]; const groups=orderGroups();
+    cache.batches.forEach(b=>{
+      (b.items||[]).forEach(i=>{
+        const lines=(Array.isArray(i.productsSnapshot)&&i.productsSnapshot.length)?i.productsSnapshot:(groups.get(i.orderNo)||[]);
+        rows.push({'ID Batch':b.batchId,'Jenis Batch':b.type==='estimate'?'Estimasi':'Final','Status':b.status,'Dibuat':b.createdAt,'No. Pesanan':i.orderNo,'Jenis Baris':'Pesanan','Produk / Variasi':lines.map(x=>`${x.product||'-'}${x.variation?` | ${x.variation}`:''}${x.quantity?` x${x.quantity}`:''}`).join(' ; '),'Tanggal Order':i.orderDate||lines[0]?.orderDate||'','Tanggal Dana Dilepas':i.releasedDate,'Nominal Snapshot':i.amountSnapshot});
+      });
+      (b.corrections||[]).forEach(c=>rows.push({'ID Batch':b.batchId,'Jenis Batch':'Estimasi','Status':b.status,'Dibuat':b.createdAt,'No. Pesanan':c.orderNo,'Jenis Baris':'Koreksi','Produk / Variasi':'Selisih Final Shopee - Estimasi','Tanggal Order':'','Tanggal Dana Dilepas':'','Nominal Snapshot':c.delta}));
+    });
+    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Riwayat Batch'); XLSX.writeFile(wb,`Riwayat_Batch_${todayISO()}.xlsx`);
   }
+
 
   function downloadJson(name,obj){ const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000); }
   function exportBackup(){downloadJson(`backup_shopee_payout_${todayISO()}.json`,{version:1,exportedAt:new Date().toISOString(),data:cache});setMessage('backupMessage','Backup JSON berhasil dibuat. Simpan file ini dengan aman.','success');}
@@ -704,7 +994,10 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
 
     ['pendingFrom','pendingTo','pendingStatus'].forEach(id=>on(id,'change',renderPending));
     on('pendingSearch','input',renderPending);
-    on('resetPendingFilter','click',()=>{ $('pendingFrom').value=''; $('pendingTo').value=''; $('pendingStatus').value='all'; $('pendingSearch').value=''; renderPending(); });
+    on('pendingProductAll','click',()=>selectAllProducts('pending'));
+    on('pendingProductNone','click',()=>clearAllProducts('pending'));
+    on('createEstimateBatchBtn','click',makeEstimateBatch);
+    on('resetPendingFilter','click',()=>{ $('pendingFrom').value=''; $('pendingTo').value=''; $('pendingStatus').value='all'; $('pendingSearch').value=''; productSelections.pending=null; renderProductChoices('pending'); renderPending(); });
     ['cancelledFrom','cancelledTo','cancelledPayment'].forEach(id=>on(id,'change',renderCancelled));
     on('cancelledSearch','input',renderCancelled);
     on('resetCancelledFilter','click',()=>{ $('cancelledFrom').value=''; $('cancelledTo').value=''; $('cancelledPayment').value='all'; $('cancelledSearch').value=''; renderCancelled(); });
@@ -716,6 +1009,9 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     on('createBatchBtn','click',makeBatch);
 
     on('exportBatchBtn','click',exportBatchXlsx);
+    on('closeEstimateBtn','click',()=>{ $('estimateDialog')?.close(); estimatingOrderNo=null; });
+    on('saveEstimateBtn','click',saveEstimateOrder);
+    on('clearEstimateBtn','click',clearEstimateOrder);
     on('closeEditBtn','click',()=>{ $('editDialog')?.close(); editingOrderNo=null; });
     on('saveEditBtn','click',saveEditOrder);
     on('deleteMasterBtn','click',deleteEditedOrder);
