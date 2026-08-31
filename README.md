@@ -1,79 +1,47 @@
-# Shopee Payout v1.13.2
+# Shopee Payout Manager — v2.0 Clean Rebuild
 
+Rebuild dari nol. Versi ini tidak menambal kode v1.x.
 
+## Hukum utama
 
-- Halaman **Siap Dicairkan** sekarang menggabungkan dua sumber aktif: **Final Income** dan **Pending Estimasi**.
-- Jika Income sudah ada, **Final Income selalu menang** dan estimasi hanya referensi.
-- Jika Income belum ada tetapi estimasi HTML/manual lengkap, estimasi tampil sebagai **Siap · Estimasi** dan bisa masuk Batch Pencairan.
-- Satu Batch dapat berisi kombinasi Final + Estimasi (`type: mixed`).
-- Saat Income muncul setelah estimasi sudah dicairkan, hanya selisih Final - Estimasi yang menjadi koreksi.
-- Transaction guard membatalkan batch bila Income baru masuk di tengah proses, agar nilai estimasi tidak dipakai saat Final sudah tersedia.
+1. **Order Excel** = sumber final untuk data order/produk/status yang dibawanya.
+2. **Income Excel** = sumber final untuk status pembayaran & nominal pembayaran Shopee.
+3. **HTML Pending / input manual** = estimasi sementara saja. Hanya aktif jika No. Pesanan belum ada di Income.
+4. Begitu Income Excel memuat No. Pesanan yang sama, estimasi aktif dipindah ke histori lalu **dihapus dari alur aktif**.
+5. **Siap Dicairkan murni Income Excel**. Tidak ada estimasi HTML/manual di halaman itu.
+6. **Batch immutable/snapshot permanen**. Upload berikutnya tidak mengubah nominal yang sudah dicairkan.
+7. Koreksi hanya berasal dari perbedaan **Final Income terkini - nominal yang benar-benar pernah dicairkan**, dikurangi koreksi yang sudah diterapkan.
+8. Satu No. Pesanan dengan banyak produk tetap satu pembayaran dan satu lock pencairan.
+9. Baris Income `Order` adalah total resmi. Baris `Sku` hanya detail.
+10. Pesanan Batal + Income dan Income tanpa Order ditahan, tidak masuk Siap Dicairkan.
 
-## Perbaikan v1.13.2 — Pending Estimasi masuk Siap Dicairkan
-- Jika **Income Excel sudah tersedia** dan order **belum pernah dicairkan**, Final Income menjadi **satu-satunya dasar pencairan**.
-- Estimasi HTML Shopee/manual yang lama tetap tersimpan hanya sebagai **riwayat/referensi** dan diberi label **Tidak digunakan**.
-- Mismatch antara estimasi lama dan Final Income pada order yang **Belum Dicairkan** tidak lagi dihitung sebagai selisih/koreksi.
-- Selisih/koreksi hanya dibuat untuk order yang **benar-benar sudah dicairkan melalui Batch Estimasi** sebelum Income final masuk.
-- Ringkasan dan tabel Siap Dicairkan sekarang menonjolkan **Final Shopee · Dasar Aktif**.
+## Alur
 
-## Tambahan v1.13.0
-- Import HTML dari Shopee Seller Centre **Penghasilan Saya → Pending**.
-- Parser lokal mengambil No. Pesanan, Dana Akan Dilepaskan, status, metode pembayaran, dan perkiraan pelepasan dana.
-- No. Pesanan dicocokkan ke Master Order; HTML mentah tidak disimpan ke Firebase.
-- Nominal HTML Shopee menjadi estimasi utama untuk Batch Estimasi; input manual tetap tersedia sebagai fallback/rincian.
-- Upload Excel berikutnya tetap mempertahankan estimasi HTML yang tersimpan.
-- Saat Income final masuk, koreksi dihitung dari nominal estimasi yang benar-benar sudah dicairkan.
-- Jika estimasi berasal dari HTML, rekonsiliasi tidak mengarang pembagian per produk karena HTML Pending menyediakan total per No. Pesanan.
+- Upload Order Excel → merge Master Order.
+- Jika belum ada Income → boleh import HTML Pending atau edit estimasi manual per item.
+- Pencairan awal estimasi dilakukan dari halaman Pending melalui Batch Estimasi.
+- Upload Income Excel terbaru → estimasi aktif dengan No. Pesanan yang sama otomatis dibersihkan; Final Excel menang.
+- Jika belum pernah dicairkan → Final Income masuk Siap Dicairkan.
+- Jika sudah pernah dicairkan estimasi → tidak dicairkan lagi sebagai nominal utama; selisih masuk saldo koreksi batch berikutnya.
+- Jika Final Income pernah dicairkan lalu Excel final berubah pada upload berikutnya, selisih juga terdeteksi karena Batch tetap snapshot permanen.
 
-# Shopee Payout v1.11.0 — Firebase + Estimasi Pending
+## Firestore
 
-Versi ini menambahkan alur pencairan lebih awal berdasarkan estimasi manual dari web Shopee, lalu merekonsiliasinya dengan Income final dari Excel Shopee.
+Collections utama:
+- `orders`
+- `incomes`
+- `batches`
+- `uploads`
+- `correction_ledger`
 
-## Fitur utama baru
-
-- Pending Pembayaran memiliki **Harga Cepat** per No. Pesanan.
-- Estimasi diisi **per item / per unit**, subtotal otomatis mengikuti Qty.
-- Total estimasi per order dan total estimasi hasil filter tampil otomatis.
-- Estimasi manual disimpan di Firestore dan **tidak ditimpa upload Excel Shopee berikutnya**.
-- Tombol **Buat Batch Estimasi** mencairkan order pending yang estimasinya lengkap.
-- Batch Estimasi dapat otomatis membawa saldo koreksi dari order lama.
-- Saat Income final masuk, aplikasi menghubungkannya ke Batch Estimasi lama sehingga order tidak dicairkan penuh dua kali.
-- Baris `Order` pada Income tetap menjadi nilai final resmi per No. Pesanan.
-- Baris `Sku` pada Income sekarang disimpan sebagai rincian final per produk untuk membandingkan estimasi.
-- Rekonsiliasi menampilkan **Estimasi vs Final Shopee**, selisih per produk, total selisih per order, dan status koreksi.
-- Selisih positif menambah Batch Estimasi berikutnya; selisih negatif mengurangi Batch Estimasi berikutnya.
-- Koreksi yang sudah digunakan ditandai dengan ID Batch agar tidak digunakan dua kali.
-
-## Rumus koreksi
-
-`Selisih = Final Shopee - Estimasi yang sudah dicairkan`
-
-- Positif: batch berikutnya ditambah.
-- Negatif: batch berikutnya dikurangi.
-- Nol: klop.
-
-`Total Batch Estimasi Baru = Total estimasi order baru + saldo koreksi belum dipakai`
-
-Jika koreksi negatif lebih besar daripada estimasi batch baru, batch diblokir agar tidak menghasilkan pencairan negatif. Tambahkan lebih banyak order estimasi ke filter.
-
-## Sumber data
-
-- **Order Excel Shopee**: status, tanggal order, produk, variasi, qty.
-- **Input manual web**: estimasi pending per item.
-- **Income Excel Shopee – Order**: nominal final resmi per No. Pesanan.
-- **Income Excel Shopee – Sku**: rincian final per produk untuk rekonsiliasi.
-- **Firestore**: master, estimasi, batch, koreksi, riwayat upload dan audit.
-
-## Setelah deploy v1.11.0
-
-Upload ulang file Order + Income terbaru sekali. Ini diperlukan agar data Income lama di Firestore mendapatkan `skuDetails` untuk tampilan selisih per produk. Total final tetap berasal dari baris Order, sehingga tidak terjadi double count.
+Rules admin lama dengan wildcard tetap kompatibel.
 
 ## Deploy GitHub Pages
 
-Replace `index.html`, `app.js`, dan `styles.css` sekaligus. Tunggu GitHub Pages selesai deploy, lalu lakukan hard refresh (`Ctrl+F5`) pada desktop atau reload halaman pada ponsel.
+Upload/replace file berikut di root repository:
+- `index.html`
+- `styles.css`
+- `core.js`
+- `app.js`
 
-
-## v1.13.0
-- Menambahkan tampilan estimasi lama di halaman **Siap Dicairkan** sebagai referensi awal.
-- Pengaman anti-double-payout: order yang sudah masuk Batch Estimasi tidak ikut Batch Final lagi ketika Income masuk.
-- Pada v1.13.1, mismatch estimasi vs Final pada order yang belum dicairkan tidak lagi dianggap koreksi.
+Lalu tunggu GitHub Pages deploy dan lakukan hard refresh (`Ctrl+F5`).

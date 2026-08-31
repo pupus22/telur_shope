@@ -2,412 +2,157 @@
 <html lang="id">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#2563eb">
-  <title>Order, Pembayaran & Pencairan Shopee</title>
-  <link rel="stylesheet" href="styles.css?v=1.13.0">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <title>Shopee Payout Manager · Clean Rebuild</title>
+  <link rel="stylesheet" href="./styles.css?v=2.0.0-clean">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-  <div id="authGate" class="auth-gate">
+  <section id="authGate" class="auth-gate">
     <form id="loginForm" class="login-card">
-      <div class="brand login-brand">
-        <div class="brand-mark">SP</div>
-        <div><strong>Shopee Payout</strong><small>Database Firebase</small></div>
-      </div>
-      <h1>Login Admin</h1>
-      <p>Masuk dengan akun Email/Password yang sudah dibuat di Firebase Authentication.</p>
+      <div class="brand-mark">SP</div>
+      <h1>Shopee Payout Manager</h1>
+      <p>Clean Rebuild · Excel Final sebagai sumber utama.</p>
       <label>Email<input id="loginEmail" type="email" autocomplete="username" required></label>
       <label>Password<input id="loginPassword" type="password" autocomplete="current-password" required></label>
-      <button id="loginBtn" type="submit" class="btn primary">Masuk</button>
-      <div id="loginMessage" class="message info">Menunggu login.</div>
+      <button class="btn primary wide" type="submit">Login</button>
+      <div id="loginMessage" class="message info">Masuk menggunakan akun admin Firebase.</div>
     </form>
-  </div>
+  </section>
 
-  <div id="appShell" class="app-shell firebase-app" hidden>
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">SP</div>
-        <div>
-          <strong>Shopee Payout</strong>
-          <small>Order · Pembayaran · Pencairan</small>
-        </div>
+  <div id="appShell" class="app-shell" hidden>
+    <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-head">
+        <div class="brand-mark small">SP</div>
+        <div><strong>Payout Manager</strong><span>Clean Rebuild</span></div>
+        <button id="drawerClose" class="icon-btn mobile-only" type="button">×</button>
       </div>
-      <nav class="nav" aria-label="Menu utama">
+      <nav id="sideNav" class="nav-list">
         <button class="nav-btn active" data-view="dashboard">Dashboard</button>
-        <button class="nav-btn" data-view="upload">Upload Data</button>
+        <button class="nav-btn" data-view="upload">Upload Excel</button>
         <button class="nav-btn" data-view="report">Laporan Gabungan</button>
         <button class="nav-btn" data-view="pending">Pending Pembayaran</button>
         <button class="nav-btn" data-view="cancelled">Pesanan Batal</button>
         <button class="nav-btn" data-view="ready">Siap Dicairkan</button>
         <button class="nav-btn" data-view="history">Riwayat Batch</button>
         <button class="nav-btn" data-view="recon">Rekonsiliasi</button>
-        <button class="nav-btn" data-view="settings">Backup & Data</button>
+        <button class="nav-btn" data-view="settings">Pengaturan</button>
       </nav>
-      <div class="sidebar-footer">
-        <div class="sidebar-note">
-          <strong>Firebase v1.13.2</strong>
-          <span>Master tersimpan online di Cloud Firestore.</span>
-        </div>
-        <div class="sidebar-account">
-          <span class="sidebar-account-label">Login sebagai</span>
-          <strong id="userEmail" class="user-email"></strong>
-          <button id="logoutBtn" type="button" class="btn sidebar-logout">Keluar</button>
-        <button id="mobileMenuClose" type="button" class="btn ghost mobile-menu-close">Tutup Menu</button>
-        </div>
+      <div class="sidebar-foot">
+        <div><span id="accountEmail">-</span><small id="firebaseStatus">Firebase</small></div>
+        <button id="logoutBtn" class="btn ghost wide" type="button">Logout</button>
       </div>
     </aside>
-    <button id="sidebarBackdrop" class="sidebar-backdrop" aria-label="Tutup menu"></button>
 
     <main class="main">
       <header class="topbar">
-        <div class="topbar-main">
-          <button id="mobileMenuBtn" type="button" class="mobile-menu-btn" aria-label="Buka menu">☰</button>
-          <div class="topbar-title-block">
-            <h1 id="pageTitle">Dashboard</h1>
-            <p id="pageSubtitle">Ringkasan Order, Pembayaran Shopee, dan Pencairan Anda.</p>
-          </div>
-        </div>
-        <div class="top-actions">
-          <span id="dbStatus" class="status-pill">Menghubungkan Firebase…</span>
-        </div>
+        <button id="drawerOpen" class="icon-btn mobile-only" type="button">☰</button>
+        <div><h1 id="pageTitle">Dashboard</h1><p id="pageSub">Ringkasan master terbaru.</p></div>
+        <div class="topbar-right"><span class="version-pill">v2.0 CLEAN</span><button id="refreshBtn" class="btn ghost" type="button">Refresh</button></div>
       </header>
 
+      <div id="globalMessage" class="global-message" hidden></div>
+
       <section id="view-dashboard" class="view active">
-        <div class="kpi-grid">
-          <article class="kpi"><span>Order unik</span><strong id="kpiOrders">0</strong><small id="kpiOrderLines">0 baris produk</small></article>
-          <article class="kpi"><span>Pembayaran Shopee</span><strong id="kpiIncome">Rp0</strong><small id="kpiIncomeCount">0 pesanan sudah dibayar</small></article>
-          <article class="kpi"><span>Siap dicairkan</span><strong id="kpiReady">Rp0</strong><small id="kpiReadyCount">0 pesanan</small></article>
-          <article class="kpi"><span>Sudah Dicairkan</span><strong id="kpiBatched">Rp0</strong><small id="kpiBatchedCount">0 pesanan masuk batch</small></article>
+        <div class="kpi-grid six">
+          <article class="kpi"><span>Master Order</span><strong id="kpiOrders">0</strong><small>unik No. Pesanan</small></article>
+          <article class="kpi"><span>Final Income</span><strong id="kpiIncome">Rp0</strong><small id="kpiIncomeCount">0 pesanan</small></article>
+          <article class="kpi"><span>Pending Aktif</span><strong id="kpiPending">0</strong><small id="kpiEstimated">0 sudah estimasi</small></article>
+          <article class="kpi"><span>Siap Dicairkan</span><strong id="kpiReady">Rp0</strong><small id="kpiReadyCount">0 pesanan final</small></article>
+          <article class="kpi"><span>Sudah Dicairkan</span><strong id="kpiPaid">Rp0</strong><small id="kpiPaidCount">0 pesanan</small></article>
+          <article class="kpi"><span>Saldo Koreksi</span><strong id="kpiCorrection">Rp0</strong><small>dibawa ke batch berikutnya</small></article>
         </div>
-
         <div class="grid-2">
-          <article class="card">
-            <div class="card-head"><div><h2>Status Data</h2><p>Ringkasan status operasional Order dan posisi pencairan pada master saat ini.</p></div></div>
-            <div class="status-list">
-              <div><span>Pending Pembayaran (aktif)</span><strong id="dashPending">0</strong></div>
-              <div><span>Pesanan Batal</span><strong id="dashCancelled">0</strong></div>
-              <div><span>Siap Dicairkan</span><strong id="dashReady">0</strong></div>
-              <div><span>Sudah Dicairkan</span><strong id="dashDone">0</strong></div>
-              <div><span>Pembayaran tanpa Order</span><strong id="dashIncomeOnly">0</strong></div>
-            </div>
-          </article>
-
-          <article class="card">
-            <div class="card-head"><div><h2>Upload Terakhir</h2><p>Riwayat import terbaru ke master.</p></div></div>
-            <div id="latestUpload" class="empty-state">Belum ada upload.</div>
-          </article>
+          <article class="card"><div class="card-head"><div><h2>Alur Data</h2><p>Aturan sumber data yang dipakai aplikasi.</p></div></div><div class="flow-box"><div><b>Order Excel</b><span>Master pesanan & produk</span></div><i>→</i><div><b>HTML / Manual</b><span>Estimasi sementara</span></div><i>→</i><div class="final"><b>Income Excel</b><span>FINAL selalu menang</span></div><i>→</i><div><b>Batch</b><span>Snapshot pencairan permanen</span></div></div></article>
+          <article class="card"><div class="card-head"><div><h2>Perlu Dicek</h2><p>Kondisi yang ditahan agar tidak salah cair.</p></div></div><div id="riskSummary" class="status-list"></div></article>
         </div>
-
-        <article class="card">
-          <div class="card-head">
-            <div><h2>Informasi & Pemeriksaan</h2><p>Pesanan multi-produk adalah normal. Hanya kondisi yang berpotensi memengaruhi pembayaran/pencairan yang perlu diperiksa.</p></div>
-            <button class="btn ghost" data-go="recon">Buka Rekonsiliasi</button>
-          </div>
-          <div id="anomalyGrid" class="anomaly-grid"></div>
-        </article>
+        <article class="card"><div class="card-head"><div><h2>Upload Terakhir</h2><p>File mentah tidak disimpan.</p></div></div><div id="latestUpload" class="empty-state">Belum ada log upload.</div></article>
       </section>
 
       <section id="view-upload" class="view">
         <article class="card">
-          <div class="card-head"><div><h2>Upload Snapshot Terbaru</h2><p>Upload file Order dan Income terbaru. Data lama tidak ditumpuk; master akan di-insert/update.</p></div></div>
+          <div class="card-head"><div><h2>Upload Excel Shopee</h2><p>Boleh upload Order, Income, atau keduanya. Data Excel merupakan sumber resmi/final untuk field yang dibawanya.</p></div></div>
           <div class="upload-grid">
-            <label class="file-box">
-              <span class="file-label">File Order</span>
-              <strong>Order Excel</strong>
-              <span id="orderFileName">Belum dipilih</span>
-              <input id="orderFile" type="file" accept=".xlsx,.xls">
-            </label>
-            <label class="file-box">
-              <span class="file-label">File Income</span>
-              <strong>Income Excel</strong>
-              <span id="incomeFileName">Belum dipilih</span>
-              <input id="incomeFile" type="file" accept=".xlsx,.xls">
-            </label>
+            <label class="file-box"><span>Order Excel</span><strong>Master Pesanan</strong><em id="orderFileName">Belum dipilih</em><input id="orderFile" type="file" accept=".xlsx,.xls"></label>
+            <label class="file-box"><span>Income Excel</span><strong>Pembayaran Final</strong><em id="incomeFileName">Belum dipilih</em><input id="incomeFile" type="file" accept=".xlsx,.xls"></label>
           </div>
-          <div class="action-row">
-            <button id="importBtn" class="btn primary">Proses & Simpan ke Master</button>
-            <button id="clearFilesBtn" class="btn ghost">Kosongkan Pilihan</button>
-          </div>
-          <div id="importMessage" class="message info">Pilih dua file untuk mulai.</div>
+          <div class="action-row"><button id="importExcelBtn" class="btn primary" type="button">Proses & Simpan</button><button id="clearExcelBtn" class="btn ghost" type="button">Kosongkan Pilihan</button></div>
+          <div id="excelMessage" class="message info">Excel tidak menggandakan No. Pesanan. Data di-merge ke master.</div>
         </article>
-
         <div class="grid-2">
-          <article class="card">
-            <div class="card-head"><div><h2>Aturan Import Order</h2></div></div>
-            <ul class="rules">
-              <li>No. Pesanan boleh ganda.</li>
-              <li>Setiap baris produk/variasi tetap disimpan.</li>
-              <li>Upload ulang baris yang sama akan memperbarui master, bukan menggandakan.</li>
-              <li>Pending Pembayaran hanya untuk pesanan non-batal yang belum ditemukan pada file Income.</li>
-              <li>Pesanan berstatus Batal dipisahkan dan alasan pembatalannya ikut disimpan.</li>
-            </ul>
-          </article>
-          <article class="card">
-            <div class="card-head"><div><h2>Aturan Import Pembayaran (Income)</h2></div></div>
-            <ul class="rules">
-              <li>Hanya baris <b>Lihat berdasarkan = Order</b> yang digunakan.</li>
-              <li>Satu No. Pesanan = satu Income.</li>
-              <li>Baris Order tetap menjadi total final resmi. Baris SKU disimpan hanya sebagai rincian final per produk untuk membandingkan estimasi.</li>
-              <li>Status Batch lama tetap dipertahankan saat Income di-upload ulang.</li>
-            </ul>
-          </article>
+          <article class="card"><div class="card-head"><div><h2>Aturan Order Excel</h2></div></div><ul class="rules"><li>No. Pesanan boleh memiliki banyak produk/baris.</li><li>Satu No. Pesanan tetap dihitung satu order.</li><li>Order yang tidak ada pada export terbaru tidak otomatis dihapus.</li><li>Status Batal dipisahkan dari Pending.</li></ul></article>
+          <article class="card"><div class="card-head"><div><h2>Aturan Income Excel</h2></div></div><ul class="rules"><li>Total resmi hanya baris <b>Lihat berdasarkan = Order</b>.</li><li>Baris SKU hanya disimpan sebagai rincian, tidak ditotal ulang.</li><li>Begitu Income muncul, estimasi aktif HTML/manual untuk No. Pesanan itu dibersihkan.</li><li>Batch lama tidak pernah ditulis ulang oleh Excel.</li></ul></article>
         </div>
-
-        <article class="card">
-          <div class="card-head"><div><h2>Riwayat Upload</h2><p>File asli tidak disimpan; yang tersimpan adalah hasil import dan log upload.</p></div></div>
-          <div class="table-wrap"><table><thead><tr><th>Waktu</th><th>File Order</th><th>File Income</th><th>Order</th><th>Income</th><th>Baru / Update</th></tr></thead><tbody id="uploadHistoryBody"></tbody></table></div>
-        </article>
+        <article class="card"><div class="card-head"><div><h2>Riwayat Import</h2></div></div><div class="table-wrap"><table><thead><tr><th>Waktu</th><th>Jenis</th><th>File</th><th>Baris</th><th>Hasil</th></tr></thead><tbody id="uploadHistoryBody"></tbody></table></div></article>
       </section>
 
       <section id="view-report" class="view">
         <article class="card">
-          <div class="card-head"><div><h2>Filter Laporan</h2><p>Satu baris laporan = satu No. Pesanan. Pembayaran dan Pencairan ditampilkan terpisah.</p></div><button id="exportReportBtn" class="btn ghost">Export Excel</button></div>
-          <div class="filters eight">
-            <label>Dana dilepas dari<input id="reportReleaseFrom" type="date"></label>
-            <label>Sampai<input id="reportReleaseTo" type="date"></label>
-            <label>Tanggal order dari<input id="reportOrderFrom" type="date"></label>
-            <label>Sampai<input id="reportOrderTo" type="date"></label>
-            <label>Status Order<select id="reportOrderStatus"><option value="all">Semua Status Order</option></select></label><label>Status Pembayaran<select id="reportPaymentStatus"><option value="all">Semua</option><option value="unpaid">Belum Ada Pembayaran</option><option value="paid">Sudah Ada Pembayaran</option></select></label><label>Status Pencairan<select id="reportPayoutStatus"><option value="all">Semua</option><option value="notYet">Siap / Belum Dicairkan</option><option value="batched">Sudah Dicairkan</option><option value="held">Ditahan / Perlu Dicek</option></select></label>
-            <label>Cari<input id="reportSearch" type="search" placeholder="No pesanan / variasi / status"></label>
-          </div>
-          <div class="product-picker" id="reportProductBox">
-            <div class="product-picker-head">
-              <div><strong>Filter Produk</strong><span>Daftar dimuat otomatis dari Nama Produk pada Master Order. Centang satu atau beberapa produk.</span></div>
-              <div class="product-picker-actions"><button id="reportProductAll" type="button" class="btn ghost small">Pilih Semua</button><button id="reportProductNone" type="button" class="btn ghost small">Kosongkan</button></div>
-            </div>
-            <div id="reportProductChoices" class="product-check-grid"></div>
-          </div>
-          <div class="summary-strip">
-            <div><span>Pesanan</span><strong id="reportCount">0</strong></div>
-            <div><span>Total Pembayaran</span><strong id="reportIncomeTotal">Rp0</strong></div>
-            <div><span>Pending Aktif</span><strong id="reportPendingCount">0</strong></div>
-            <div><span>Pesanan Batal</span><strong id="reportCancelledCount">0</strong></div>
-            <div><span>Belum Dicairkan</span><strong id="reportReadyCount">0</strong></div><div><span>Sudah Dicairkan</span><strong id="reportBatchedCount">0</strong></div>
-          </div>
-          <div id="reportSearchNote" class="message info">Hasil pencarian: 0 pesanan.</div><div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Nama Produk / Variasi</th><th>Status Order</th><th>Status Pembayaran</th><th class="num">Pembayaran</th><th>Tanggal Order</th><th>Tgl Pembayaran / Dana Dilepas</th><th>Status Pencairan</th><th>Aksi</th></tr></thead><tbody id="reportBody"></tbody></table></div>
+          <div class="card-head"><div><h2>Laporan Gabungan</h2><p>Tempat melihat perjalanan lengkap: Order, Estimasi, Final Income, Pencairan, dan Koreksi.</p></div><button id="exportReportBtn" class="btn ghost" type="button">Export Excel</button></div>
+          <div class="filters six"><label>Order dari<input id="reportFrom" type="date"></label><label>Sampai<input id="reportTo" type="date"></label><label>Status<select id="reportState"><option value="all">Semua</option><option value="pending">Pending</option><option value="readyFinal">Siap Dicairkan</option><option value="paid">Sudah Dicairkan</option><option value="cancelled">Batal</option><option value="held">Ditahan</option></select></label><label>Cari<input id="reportSearch" type="search" placeholder="No pesanan / produk"></label><div class="filter-action"><button id="reportReset" class="btn ghost" type="button">Reset</button></div></div>
+          <div class="summary-strip"><div><span>Pesanan</span><strong id="reportCount">0</strong></div><div><span>Estimasi</span><strong id="reportEstimateTotal">Rp0</strong></div><div><span>Final Income</span><strong id="reportFinalTotal">Rp0</strong></div><div><span>Sudah Dicairkan</span><strong id="reportPaidTotal">Rp0</strong></div><div><span>Sisa Koreksi</span><strong id="reportCorrectionTotal">Rp0</strong></div></div>
+          <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Status Order</th><th>Estimasi / Riwayat</th><th class="num">Final Income</th><th>Pencairan</th><th class="num">Koreksi</th><th>Status</th></tr></thead><tbody id="reportBody"></tbody></table></div>
         </article>
       </section>
 
       <section id="view-pending" class="view">
         <article class="card">
-          <div class="card-head"><div><h2>Pending Pembayaran Shopee</h2><p>Hanya pesanan <b>aktif/non-batal</b> yang belum ditemukan pada file Income. Pesanan Batal tidak dihitung di halaman ini.</p></div></div>
-          <div class="filters five">
-            <label>Tanggal Order Dari<input id="pendingFrom" type="date"></label>
-            <label>Tanggal Order Sampai<input id="pendingTo" type="date"></label>
-            <label>Status Order<select id="pendingStatus"><option value="all">Semua Status Aktif</option></select></label>
-            <label>Cari<input id="pendingSearch" type="search" placeholder="No pesanan / produk / variasi"></label>
-            <div class="filter-action"><button id="resetPendingFilter" class="btn ghost">Reset Filter</button></div>
-          </div>
-          <div class="pending-html-import">
-            <div class="pending-html-import-head">
-              <div>
-                <strong>Import Estimasi dari HTML Shopee</strong>
-                <span>Simpan halaman Shopee <b>Penghasilan Saya → Pending</b> sebagai HTML, lalu upload di sini. File diproses lokal di browser; HTML mentah tidak disimpan ke Firebase.</span>
-              </div>
-              <div class="pending-html-import-actions">
-                <label class="btn primary file-btn">Pilih HTML Shopee<input id="pendingHtmlFile" type="file" accept=".html,.htm,text/html"></label>
-                <button id="importPendingHtmlBtn" type="button" class="btn success" disabled>Import &amp; Cocokkan</button>
-              </div>
-            </div>
-            <div class="pending-html-file-row"><span id="pendingHtmlFileName">Belum ada file HTML dipilih.</span></div>
-            <div id="pendingHtmlMessage" class="message info">No. Pesanan pada HTML akan dicocokkan dengan Master Order. Nominal “Dana Akan Dilepaskan” menjadi estimasi Shopee dan lebih diprioritaskan daripada estimasi manual.</div>
-            <div class="summary-strip pending-html-summary">
-              <div><span>Baris HTML</span><strong id="pendingHtmlRows">0</strong></div>
-              <div><span>Cocok Master</span><strong id="pendingHtmlMatched">0</strong></div>
-              <div><span>Tidak Cocok</span><strong id="pendingHtmlUnmatched">0</strong></div>
-              <div><span>Total HTML</span><strong id="pendingHtmlTotal">Rp0</strong></div>
-            </div>
-          </div>
-          <div class="product-picker" id="pendingProductBox">
-            <div class="product-picker-head">
-              <div><strong>Filter Produk Pending</strong><span>Hanya produk yang saat ini memiliki pesanan Pending Pembayaran yang ditampilkan. Centang satu atau beberapa produk.</span></div>
-              <div class="product-picker-actions"><button id="pendingProductAll" type="button" class="btn ghost small">Pilih Semua</button><button id="pendingProductNone" type="button" class="btn ghost small">Kosongkan</button></div>
-            </div>
-            <div id="pendingProductChoices" class="product-check-grid"></div>
-          </div>
-          <div class="summary-strip pending-estimate-summary">
-            <div><span>Pending Aktif</span><strong id="pendingCount">0</strong></div>
-            <div><span>Baris Produk</span><strong id="pendingLines">0</strong></div>
-            <div><span>Sudah Diestimasi</span><strong id="pendingEstimatedCount">0</strong></div>
-            <div><span>Total Estimasi Filter</span><strong id="pendingEstimateTotal">Rp0</strong></div>
-          </div>
-          <div class="pending-estimate-actions">
-            <div id="pendingEstimateNote" class="message info">Estimasi manual disimpan terpisah dari data Shopee dan tidak ditimpa upload Excel berikutnya.</div>
-            <button id="createEstimateBatchBtn" type="button" class="btn success">Buat Batch Estimasi</button>
-          </div>
-          <div id="pendingStatusSummary" class="mini-chip-row"></div>
-          <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Status Order</th><th>Tanggal Order</th><th class="num">Estimasi Order</th><th>Status Estimasi</th><th>Aksi</th></tr></thead><tbody id="pendingBody"></tbody></table></div>
+          <div class="card-head"><div><h2>Pending Pembayaran</h2><p>Hanya order non-batal yang belum mempunyai Income final. HTML/manual hanya estimasi sementara.</p></div></div>
+          <div class="html-import-box"><div><strong>Upload HTML Pending Shopee</strong><span>Diproses lokal. HTML mentah tidak disimpan ke Firebase.</span></div><label class="btn primary file-button">Pilih HTML<input id="pendingHtmlFile" type="file" accept=".html,.htm,text/html"></label><button id="importHtmlBtn" class="btn success" type="button" disabled>Import HTML</button></div>
+          <div id="htmlMessage" class="message info">Jika No. Pesanan sudah ada di Income Excel, data HTML otomatis diabaikan dan tidak bisa menghidupkan estimasi lagi.</div>
+          <div class="summary-strip"><div><span>Pending</span><strong id="pendingCount">0</strong></div><div><span>Sudah Estimasi</span><strong id="pendingEstimatedCount">0</strong></div><div><span>Belum Estimasi</span><strong id="pendingNoEstimateCount">0</strong></div><div><span>Total Estimasi Aktif</span><strong id="pendingEstimateTotal">Rp0</strong></div></div>
+          <div class="filters five"><label>Order dari<input id="pendingFrom" type="date"></label><label>Sampai<input id="pendingTo" type="date"></label><label>Cari<input id="pendingSearch" type="search" placeholder="No pesanan / produk"></label><div class="filter-action"><button id="pendingReset" class="btn ghost" type="button">Reset</button></div></div>
+          <div id="pendingProductPicker" class="product-picker"></div>
+          <div class="batch-toolbar"><div><strong id="pendingSelectedCount">0 dipilih</strong><span id="pendingSelectedTotal">Rp0 estimasi</span></div><button id="createEstimateBatchBtn" class="btn success" type="button" disabled>Buat Batch Estimasi</button></div>
+          <div class="table-wrap large"><table><thead><tr><th><input id="pendingSelectAll" type="checkbox"></th><th>No. Pesanan</th><th>Produk / Variasi</th><th>Status</th><th>Tanggal Order</th><th class="num">Estimasi</th><th>Sumber</th><th>Aksi</th></tr></thead><tbody id="pendingBody"></tbody></table></div>
         </article>
       </section>
 
       <section id="view-cancelled" class="view">
-        <article class="card">
-          <div class="card-head"><div><h2>Pesanan Batal</h2><p>Pesanan berstatus Batal dipisahkan dari Pending Pembayaran dan tidak dapat masuk Batch Pencairan otomatis.</p></div></div>
-          <div class="filters five">
-            <label>Tanggal Order Dari<input id="cancelledFrom" type="date"></label>
-            <label>Tanggal Order Sampai<input id="cancelledTo" type="date"></label>
-            <label>Pembayaran<select id="cancelledPayment"><option value="all">Semua</option><option value="none">Tanpa Pembayaran</option><option value="withIncome">Ada Pembayaran</option><option value="batched">Sudah Masuk Batch</option></select></label>
-            <label>Cari<input id="cancelledSearch" type="search" placeholder="No pesanan / produk / alasan batal"></label>
-            <div class="filter-action"><button id="resetCancelledFilter" class="btn ghost">Reset Filter</button></div>
-          </div>
-          <div class="summary-strip"><div><span>Pesanan Batal</span><strong id="cancelledCount">0</strong></div><div><span>Batal + Ada Pembayaran</span><strong id="cancelledWithIncome">0</strong></div><div><span>Batal + Sudah Dicairkan</span><strong id="cancelledBatched">0</strong></div></div>
-          <div class="message warning">Jika pesanan Batal memiliki Pembayaran Shopee, data ditahan dari daftar Siap Dicairkan dan dimasukkan ke Rekonsiliasi untuk diperiksa.</div>
-          <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Alasan Pembatalan</th><th>Tanggal Order</th><th>Status Pembayaran</th><th class="num">Nominal</th><th>Status Pencairan</th><th>Aksi</th></tr></thead><tbody id="cancelledBody"></tbody></table></div>
-        </article>
+        <article class="card"><div class="card-head"><div><h2>Pesanan Batal</h2><p>Batal tidak dianggap Pending atau Siap Dicairkan. Jika Income ada, transaksi ditahan untuk pemeriksaan.</p></div></div><div class="summary-strip"><div><span>Pesanan Batal</span><strong id="cancelledCount">0</strong></div><div><span>Batal + Income</span><strong id="cancelledIncomeCount">0</strong></div></div><div class="table-wrap"><table><thead><tr><th>No. Pesanan</th><th>Produk</th><th>Alasan</th><th class="num">Income</th><th>Status</th></tr></thead><tbody id="cancelledBody"></tbody></table></div></article>
       </section>
 
       <section id="view-ready" class="view">
         <article class="card">
-          <div class="card-head"><div><h2>Siap Dicairkan</h2><p>Menampilkan dua sumber pencairan: <b>Final Income Shopee</b> jika sudah tersedia, atau <b>Estimasi Pending</b> jika Income belum tersedia. Filter periode selalu berdasarkan <b>Tanggal Order</b>.</p></div></div>
-          <div class="filters four">
-            <label>Tanggal Order Dari<input id="readyFrom" type="date"></label>
-            <label>Tanggal Order Sampai<input id="readyTo" type="date"></label>
-            <label>Cari<input id="readySearch" type="search" placeholder="No pesanan / produk / variasi"></label>
-            <div class="filter-action"><button id="resetReadyFilter" class="btn ghost">Reset Filter</button></div>
-          </div>
-          <div class="product-picker" id="readyProductBox">
-            <div class="product-picker-head">
-              <div><strong>Produk yang ingin dicairkan</strong><span>Daftar produk dimuat otomatis dari Master Order. Centang satu atau beberapa produk; hasil tetap dicocokkan dengan Income berdasarkan No. Pesanan.</span></div>
-              <div class="product-picker-actions"><button id="readyProductAll" type="button" class="btn ghost small">Pilih Semua</button><button id="readyProductNone" type="button" class="btn ghost small">Kosongkan</button></div>
-            </div>
-            <div id="readyProductChoices" class="product-check-grid"></div>
-          </div>
-          <div class="batch-summary ready-batch-summary">
-            <div><span>Pesanan siap batch</span><strong id="readyCount">0</strong></div>
-            <div><span>Total Dasar Aktif</span><strong id="readyAmount">Rp0</strong></div>
-            <div><span>Final Income</span><strong id="readyFinalAmount">Rp0</strong><small id="readyFinalCount">0 pesanan</small></div>
-            <div><span>Estimasi Pending</span><strong id="readyEstimateAmount">Rp0</strong><small id="readyEstimateCount">0 pesanan</small></div>
-            <button id="createBatchBtn" class="btn success">Buat Batch Pencairan</button>
-          </div>
-          <div id="readySearchNote" class="message info">Hasil filter: 0 pesanan siap dicairkan.</div>
-          <div id="readyEstimateNote" class="message info">Jika Income Excel sudah tersedia, Final Income selalu menang. Jika Income belum tersedia tetapi estimasi sudah lengkap, estimasi boleh dicairkan lebih awal dan nanti direkonsiliasi saat Income masuk.</div>
-          <div id="productFilterWarning" class="message warning" style="display:none"></div><div id="batchMessage" class="message info">Batch dibuat berdasarkan semua hasil filter yang sedang tampil. Setelah dibuat, setiap No. Pesanan akan diberi tanda Batch.</div>
-          <div class="table-wrap large"><table class="ready-table"><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Tanggal Order</th><th>Tanggal Dana Dilepas</th><th class="num">Pembayaran Shopee · Final</th><th class="num">Estimasi Pending / Referensi</th><th>Status Pencairan</th><th>Aksi</th></tr></thead><tbody id="readyBody"></tbody></table></div>
+          <div class="card-head"><div><h2>Siap Dicairkan</h2><p><b>Murni dari Income Excel.</b> Tidak ada estimasi HTML/manual di halaman ini.</p></div></div>
+          <div class="message success"><b>Rule:</b> No. Pesanan harus ada di Income Excel, memiliki Order aktif/non-batal, dan belum pernah dicairkan.</div>
+          <div class="summary-strip"><div><span>Pesanan Final Siap</span><strong id="readyCount">0</strong></div><div><span>Nominal Final</span><strong id="readyTotal">Rp0</strong></div><div><span>Saldo Koreksi</span><strong id="readyCorrection">Rp0</strong></div><div><span>Perkiraan Total Batch</span><strong id="readyPayoutPreview">Rp0</strong></div></div>
+          <div class="filters five"><label>Order dari<input id="readyFrom" type="date"></label><label>Sampai<input id="readyTo" type="date"></label><label>Cari<input id="readySearch" type="search" placeholder="No pesanan / produk"></label><div class="filter-action"><button id="readyReset" class="btn ghost" type="button">Reset</button></div></div>
+          <div id="readyProductPicker" class="product-picker"></div>
+          <div class="batch-toolbar"><div><strong id="readySelectedCount">0 dipilih</strong><span id="readySelectedTotal">Rp0 final</span></div><button id="createFinalBatchBtn" class="btn success" type="button" disabled>Buat Batch Pencairan</button></div>
+          <div class="table-wrap large"><table><thead><tr><th><input id="readySelectAll" type="checkbox"></th><th>No. Pesanan</th><th>Produk / Variasi</th><th>Status Order</th><th>Tanggal Order</th><th>Tanggal Dana Dilepas</th><th class="num">Pembayaran Shopee</th><th>Status</th></tr></thead><tbody id="readyBody"></tbody></table></div>
         </article>
       </section>
 
       <section id="view-history" class="view">
-        <article class="card">
-          <div class="card-head"><div><h2>Riwayat Batch Pencairan</h2><p>Batch yang dibatalkan tetap tersimpan sebagai audit.</p></div><button id="exportBatchBtn" class="btn ghost">Export Riwayat Excel</button></div>
-          <div class="table-wrap large"><table><thead><tr><th>ID Batch</th><th>Dibuat</th><th>Status</th><th>Jumlah Pesanan</th><th class="num">Nominal Snapshot</th><th>Aksi</th></tr></thead><tbody id="batchHistoryBody"></tbody></table></div>
-        </article>
+        <article class="card"><div class="card-head"><div><h2>Riwayat Batch</h2><p>Batch bersifat snapshot permanen; upload Excel berikutnya tidak mengubah nominal historisnya.</p></div><button id="exportBatchBtn" class="btn ghost" type="button">Export Semua</button></div><div class="table-wrap"><table><thead><tr><th>Batch</th><th>Waktu</th><th>Jenis</th><th>Pesanan</th><th class="num">Dasar</th><th class="num">Koreksi</th><th class="num">Total Pencairan</th><th>Aksi</th></tr></thead><tbody id="batchBody"></tbody></table></div></article>
       </section>
 
       <section id="view-recon" class="view">
-        <div class="kpi-grid recon-kpi">
-          <article class="kpi"><span>Total Pembayaran Master</span><strong id="reconIncome">Rp0</strong><small id="reconIncomeN">0 pesanan</small></article>
-          <article class="kpi"><span>Sudah Dicairkan</span><strong id="reconBatched">Rp0</strong><small id="reconBatchedN">0 pesanan</small></article>
-          <article class="kpi"><span>Belum Dicairkan</span><strong id="reconReady">Rp0</strong><small id="reconReadyN">0 pesanan</small></article>
-          <article class="kpi"><span>Ditahan / Perlu Dicek</span><strong id="reconHeld">Rp0</strong><small id="reconHeldN">0 pesanan</small></article>
-        </div>
-        <article class="card">
-          <div class="card-head"><div><h2>Rekonsiliasi</h2><p>Total Pembayaran = Sudah Dicairkan + Siap Dicairkan + Ditahan/Perlu Dicek.</p></div></div>
-          <div id="reconMessage" class="message"></div>
-          <div class="recon-equation">
-            <span>Total Pembayaran</span><b>=</b><span>Sudah Dicairkan</span><b>+</b><span>Siap Dicairkan</span><b>+</b><span>Ditahan / Perlu Dicek</span>
-          </div>
-        </article>
-        <article class="card">
-          <div class="card-head"><div><h2>Estimasi vs Final Shopee</h2><p>Estimasi yang sudah dicairkan dibandingkan dengan Income final. Selisih yang belum diselesaikan otomatis menjadi saldo koreksi batch estimasi berikutnya.</p></div></div>
-          <div class="summary-strip">
-            <div><span>Estimasi Sudah Dicairkan</span><strong id="reconEstimatePaid">Rp0</strong></div>
-            <div><span>Final Shopee Terkait</span><strong id="reconEstimateFinal">Rp0</strong></div>
-            <div><span>Saldo Koreksi Belum Dipakai</span><strong id="reconCorrectionOpen">Rp0</strong></div>
-            <div><span>Order Ada Selisih</span><strong id="reconCorrectionCount">0</strong></div>
-          </div>
-          <div id="correctionMessage" class="message info">Belum ada estimasi yang sudah mendapatkan Income final.</div>
-          <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Rincian Produk: Estimasi → Final</th><th class="num">Estimasi Order</th><th class="num">Final Shopee</th><th class="num">Selisih</th><th>Status Koreksi</th></tr></thead><tbody id="estimateReconBody"></tbody></table></div>
-        </article>
-
-        <article class="card">
-          <div class="card-head"><div><h2>Anomali Data</h2><p>Digunakan untuk memeriksa ketidaksesuaian upload dan perubahan data.</p></div></div>
-          <div class="table-wrap"><table><thead><tr><th>Jenis</th><th>No. Pesanan</th><th>Keterangan</th></tr></thead><tbody id="anomalyBody"></tbody></table></div>
-        </article>
+        <div class="kpi-grid four"><article class="kpi"><span>Total Final Income</span><strong id="reconIncome">Rp0</strong></article><article class="kpi"><span>Final Belum Dicairkan</span><strong id="reconReady">Rp0</strong></article><article class="kpi"><span>Pencairan Snapshot</span><strong id="reconPaid">Rp0</strong></article><article class="kpi"><span>Sisa Koreksi</span><strong id="reconCorrection">Rp0</strong></article></div>
+        <article class="card"><div class="card-head"><div><h2>Selisih Pencairan vs Final Excel</h2><p>Koreksi hanya dihitung jika memang ada snapshot pencairan nyata. Ini mencakup pencairan estimasi maupun perubahan Income setelah batch final.</p></div></div><div class="table-wrap"><table><thead><tr><th>No. Pesanan</th><th>Batch Asal</th><th class="num">Sudah Dicairkan</th><th class="num">Final Excel Kini</th><th class="num">Selisih Asli</th><th class="num">Sudah Dikoreksi</th><th class="num">Sisa</th></tr></thead><tbody id="correctionBody"></tbody></table></div></article>
+        <article class="card"><div class="card-head"><div><h2>Data Ditahan / Perlu Dicek</h2></div></div><div id="heldList" class="anomaly-list"></div></article>
       </section>
 
       <section id="view-settings" class="view">
-        <article class="card">
-          <div class="card-head"><div><h2>Riwayat Edit Manual</h2><p>Semua koreksi manual pada Order, Pembayaran, atau status Pencairan dicatat di sini.</p></div></div>
-          <div class="table-wrap"><table><thead><tr><th>Waktu</th><th>No. Pesanan Sebelum</th><th>No. Pesanan Sesudah</th><th>Catatan</th></tr></thead><tbody id="editHistoryBody"></tbody></table></div>
-        </article>
         <div class="grid-2">
-          <article class="card">
-            <div class="card-head"><div><h2>Backup Database Firebase</h2><p>Backup JSON opsional untuk arsip tambahan. Data utama tetap tersimpan online di Firestore.</p></div></div>
-            <div class="action-stack">
-              <button id="exportBackupBtn" class="btn primary">Export Backup JSON</button>
-              <label class="btn ghost file-button">Import Backup JSON<input id="importBackupFile" type="file" accept=".json"></label>
-            </div>
-            <div id="backupMessage" class="message info">Belum ada tindakan.</div>
-          </article>
-          <article class="card danger-card">
-            <div class="card-head"><div><h2>Reset Data Firebase</h2><p>Menghapus seluruh master dan riwayat Firestore. Gunakan hanya untuk data uji.</p></div></div>
-            <button id="resetDbBtn" class="btn danger">Hapus Semua Data Firebase</button>
-          </article>
+          <article class="card"><div class="card-head"><div><h2>Status Sistem</h2></div></div><div class="status-list"><div><span>Versi</span><strong>2.0.0-clean</strong></div><div><span>Schema</span><strong>v2</strong></div><div><span>Firebase</span><strong id="settingsFirebase">-</strong></div><div><span>Admin UID</span><strong>terkunci</strong></div></div><button id="syncLedgerBtn" class="btn ghost" type="button">Sinkronkan Ledger Koreksi</button></article>
+          <article class="card danger-card"><div class="card-head"><div><h2>Reset Database</h2><p>Hanya untuk mulai benar-benar kosong. Riwayat Batch juga akan terhapus.</p></div></div><label>Ketik <b>HAPUS SEMUA</b><input id="resetPhrase" type="text" autocomplete="off"></label><button id="resetDbBtn" class="btn danger" type="button">Hapus Semua Data Aplikasi</button><div id="settingsMessage" class="message warning">Jangan gunakan reset jika masih membutuhkan riwayat Batch.</div></article>
         </div>
       </section>
     </main>
 
-    <nav class="mobile-bottom-nav" aria-label="Navigasi bawah">
-      <button type="button" class="nav-btn mobile-bottom-btn active" data-view="dashboard"><span>⌂</span><small>Dashboard</small></button>
-      <button type="button" class="nav-btn mobile-bottom-btn" data-view="pending"><span>◔</span><small>Pending</small></button>
-      <button type="button" class="nav-btn mobile-bottom-btn" data-view="ready"><span>₨</span><small>Siap Cair</small></button>
-      <button type="button" class="nav-btn mobile-bottom-btn" data-view="history"><span>☷</span><small>Batch</small></button>
-      <button id="mobileMoreBtn" type="button" class="mobile-bottom-btn more-btn"><span>⋯</span><small>Lainnya</small></button>
+    <nav class="bottom-nav">
+      <button data-view="dashboard">Dashboard</button><button data-view="pending">Pending</button><button data-view="ready">Siap Cair</button><button data-view="history">Batch</button><button id="bottomMore" type="button">Lainnya</button>
     </nav>
   </div>
 
-  <dialog id="estimateDialog" class="dialog dialog-standard dialog-fullscreen">
-    <div class="dialog-card estimate-dialog-card">
-      <div class="card-head"><div><h2>Estimasi Pending per Item</h2><p id="estimateSubtitle">Isi estimasi berdasarkan nominal yang terlihat di web Shopee. Nilai final tetap mengikuti file Income.</p></div><button id="closeEstimateBtn" type="button" class="btn ghost">Tutup</button></div>
-      <div id="estimateMessage" class="message info">Estimasi manual tidak akan ditimpa saat Anda upload Excel Shopee terbaru.</div>
-      <div id="estimateLines" class="estimate-lines"></div>
-      <div class="estimate-total-bar"><span>Total Estimasi Order</span><strong id="estimateOrderTotal">Rp0</strong></div>
-      <div class="dialog-actions"><button id="clearEstimateBtn" type="button" class="btn ghost">Kosongkan Estimasi</button><button id="saveEstimateBtn" type="button" class="btn success">Simpan Estimasi</button></div>
-    </div>
-  </dialog>
+  <dialog id="estimateDialog" class="modal"><form method="dialog" class="modal-shell"><header><div><h2>Edit Estimasi Manual</h2><p id="estimateOrderNo">-</p></div><button class="icon-btn" value="cancel">×</button></header><div class="modal-body"><div id="estimateMessage" class="message info"></div><div class="table-wrap"><table><thead><tr><th>Produk / Variasi</th><th class="num">Qty</th><th class="num">Estimasi / unit</th><th class="num">Subtotal</th></tr></thead><tbody id="estimateItemsBody"></tbody></table></div><div class="modal-total"><span>Total Estimasi Manual</span><strong id="estimateGrandTotal">Rp0</strong></div></div><footer><button class="btn ghost" value="cancel">Tutup</button><button id="saveEstimateBtn" class="btn primary" type="button">Simpan Estimasi</button></footer></form></dialog>
 
-  <dialog id="editDialog" class="dialog dialog-standard dialog-fullscreen">
-    <div class="dialog-card edit-dialog-card">
-      <div class="card-head"><div><h2>Edit Data Pesanan</h2><p>Semua perubahan disimpan ke Firestore dan dicatat pada log edit.</p></div><button id="closeEditBtn" type="button" class="btn ghost">Tutup</button></div>
-      <div id="editMessage" class="message info">No. Pesanan dapat diubah. Relasi Order, Pembayaran, dan Batch akan ikut diperbarui.</div>
-      <div class="edit-grid">
-        <label>No. Pesanan<input id="editOrderNo" type="text"></label>
-        <label>Status Order<input id="editOrderStatus" type="text"></label>
-        <label>Alasan Pembatalan<input id="editCancelReason" type="text" placeholder="Diisi jika status Batal"></label>
-        <label>Tanggal Order<input id="editOrderDate" type="date"></label>
-        <label>Total Pembayaran<input id="editIncomeAmount" type="number" step="1" min="0"></label>
-        <label>Tanggal Pembayaran / Dana Dilepas<input id="editReleasedDate" type="date"></label>
-        <label>Status Pencairan<select id="editBatchId"><option value="">Belum Dicairkan</option></select></label>
-      </div>
-      <h3 class="edit-subtitle">Detail Produk / Variasi</h3>
-      <div id="editLines" class="edit-lines"></div>
-      <div class="dialog-actions">
-        <button id="deleteMasterBtn" type="button" class="btn danger">Hapus Data Pesanan</button>
-        <button id="saveEditBtn" type="button" class="btn success">Simpan Perubahan</button>
-      </div>
-    </div>
-  </dialog>
+  <dialog id="batchDetailDialog" class="modal"><form method="dialog" class="modal-shell"><header><div><h2 id="batchDetailTitle">Detail Batch</h2><p id="batchDetailMeta"></p></div><button class="icon-btn" value="cancel">×</button></header><div class="modal-body" id="batchDetailBody"></div><footer><button class="btn primary" value="cancel">Tutup</button></footer></form></dialog>
 
-  <dialog id="confirmDialog" class="dialog dialog-standard">
-    <form method="dialog" class="dialog-card confirm-dialog-card">
-      <h2 id="dialogTitle">Konfirmasi</h2>
-      <div id="dialogContent"></div>
-      <div class="dialog-actions">
-        <button value="cancel" class="btn ghost">Batal</button>
-        <button id="dialogConfirmBtn" value="confirm" class="btn success">Konfirmasi</button>
-      </div>
-    </form>
-  </dialog>
-
-  <dialog id="detailDialog" class="dialog dialog-standard dialog-batch-detail">
-    <form method="dialog" class="dialog-card batch-detail-card">
-      <div class="card-head batch-detail-head"><div><h2 id="detailTitle">Detail Batch</h2><p id="detailSubtitle"></p></div><button value="close" class="btn ghost">Tutup</button></div>
-      <div class="table-wrap batch-detail-table-wrap"><table class="batch-detail-table"><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Tgl Order</th><th>Tgl Pembayaran Shopee</th><th class="num">Nominal Saat Dicairkan</th></tr></thead><tbody id="detailBatchBody"></tbody></table></div>
-    </form>
-  </dialog>
-
-  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <script>if(!window.XLSX){document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\\/script>')}</script>
-  <script type="module" src="app.js?v=1.13.0"></script>
+  <script type="module" src="./app.js?v=2.0.0-clean"></script>
 </body>
 </html>
