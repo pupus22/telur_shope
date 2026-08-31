@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#0f172a">
   <title>Shopee Payout Manager · Clean Rebuild</title>
-  <link rel="stylesheet" href="./styles.css?v=2.0.0-clean">
+  <link rel="stylesheet" href="./styles.css?v=2.0.1-ui">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -50,7 +50,7 @@
       <header class="topbar">
         <button id="drawerOpen" class="icon-btn mobile-only" type="button">☰</button>
         <div><h1 id="pageTitle">Dashboard</h1><p id="pageSub">Ringkasan master terbaru.</p></div>
-        <div class="topbar-right"><span class="version-pill">v2.0 CLEAN</span><button id="refreshBtn" class="btn ghost" type="button">Refresh</button></div>
+        <div class="topbar-right"><span class="version-pill">v2.0.1</span><button id="refreshBtn" class="btn ghost" type="button">Refresh</button></div>
       </header>
 
       <div id="globalMessage" class="global-message" hidden></div>
@@ -92,7 +92,7 @@
         <article class="card">
           <div class="card-head"><div><h2>Laporan Gabungan</h2><p>Tempat melihat perjalanan lengkap: Order, Estimasi, Final Income, Pencairan, dan Koreksi.</p></div><button id="exportReportBtn" class="btn ghost" type="button">Export Excel</button></div>
           <div class="filters six"><label>Order dari<input id="reportFrom" type="date"></label><label>Sampai<input id="reportTo" type="date"></label><label>Status<select id="reportState"><option value="all">Semua</option><option value="pending">Pending</option><option value="readyFinal">Siap Dicairkan</option><option value="paid">Sudah Dicairkan</option><option value="cancelled">Batal</option><option value="held">Ditahan</option></select></label><label>Cari<input id="reportSearch" type="search" placeholder="No pesanan / produk"></label><div class="filter-action"><button id="reportReset" class="btn ghost" type="button">Reset</button></div></div>
-          <div class="summary-strip"><div><span>Pesanan</span><strong id="reportCount">0</strong></div><div><span>Estimasi</span><strong id="reportEstimateTotal">Rp0</strong></div><div><span>Final Income</span><strong id="reportFinalTotal">Rp0</strong></div><div><span>Sudah Dicairkan</span><strong id="reportPaidTotal">Rp0</strong></div><div><span>Sisa Koreksi</span><strong id="reportCorrectionTotal">Rp0</strong></div></div>
+          <div class="summary-strip cols-5"><div><span>Pesanan</span><strong id="reportCount">0</strong></div><div><span>Estimasi</span><strong id="reportEstimateTotal">Rp0</strong></div><div><span>Final Income</span><strong id="reportFinalTotal">Rp0</strong></div><div><span>Sudah Dicairkan</span><strong id="reportPaidTotal">Rp0</strong></div><div><span>Sisa Koreksi</span><strong id="reportCorrectionTotal">Rp0</strong></div></div>
           <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Status Order</th><th>Estimasi / Riwayat</th><th class="num">Final Income</th><th>Pencairan</th><th class="num">Koreksi</th><th>Status</th></tr></thead><tbody id="reportBody"></tbody></table></div>
         </article>
       </section>
@@ -102,7 +102,7 @@
           <div class="card-head"><div><h2>Pending Pembayaran</h2><p>Hanya order non-batal yang belum mempunyai Income final. HTML/manual hanya estimasi sementara.</p></div></div>
           <div class="html-import-box"><div><strong>Upload HTML Pending Shopee</strong><span>Diproses lokal. HTML mentah tidak disimpan ke Firebase.</span></div><label class="btn primary file-button">Pilih HTML<input id="pendingHtmlFile" type="file" accept=".html,.htm,text/html"></label><button id="importHtmlBtn" class="btn success" type="button" disabled>Import HTML</button></div>
           <div id="htmlMessage" class="message info">Jika No. Pesanan sudah ada di Income Excel, data HTML otomatis diabaikan dan tidak bisa menghidupkan estimasi lagi.</div>
-          <div class="summary-strip"><div><span>Pending</span><strong id="pendingCount">0</strong></div><div><span>Sudah Estimasi</span><strong id="pendingEstimatedCount">0</strong></div><div><span>Belum Estimasi</span><strong id="pendingNoEstimateCount">0</strong></div><div><span>Total Estimasi Aktif</span><strong id="pendingEstimateTotal">Rp0</strong></div></div>
+          <div class="summary-strip cols-4"><div><span>Pending</span><strong id="pendingCount">0</strong></div><div><span>Sudah Estimasi</span><strong id="pendingEstimatedCount">0</strong></div><div><span>Belum Estimasi</span><strong id="pendingNoEstimateCount">0</strong></div><div><span>Total Estimasi Aktif</span><strong id="pendingEstimateTotal">Rp0</strong></div></div>
           <div class="filters five"><label>Order dari<input id="pendingFrom" type="date"></label><label>Sampai<input id="pendingTo" type="date"></label><label>Cari<input id="pendingSearch" type="search" placeholder="No pesanan / produk"></label><div class="filter-action"><button id="pendingReset" class="btn ghost" type="button">Reset</button></div></div>
           <div id="pendingProductPicker" class="product-picker"></div>
           <div class="batch-toolbar"><div><strong id="pendingSelectedCount">0 dipilih</strong><span id="pendingSelectedTotal">Rp0 estimasi</span></div><button id="createEstimateBatchBtn" class="btn success" type="button" disabled>Buat Batch Estimasi</button></div>
@@ -111,14 +111,14 @@
       </section>
 
       <section id="view-cancelled" class="view">
-        <article class="card"><div class="card-head"><div><h2>Pesanan Batal</h2><p>Batal tidak dianggap Pending atau Siap Dicairkan. Jika Income ada, transaksi ditahan untuk pemeriksaan.</p></div></div><div class="summary-strip"><div><span>Pesanan Batal</span><strong id="cancelledCount">0</strong></div><div><span>Batal + Income</span><strong id="cancelledIncomeCount">0</strong></div></div><div class="table-wrap"><table><thead><tr><th>No. Pesanan</th><th>Produk</th><th>Alasan</th><th class="num">Income</th><th>Status</th></tr></thead><tbody id="cancelledBody"></tbody></table></div></article>
+        <article class="card"><div class="card-head"><div><h2>Pesanan Batal</h2><p>Batal tidak dianggap Pending atau Siap Dicairkan. Jika Income ada, transaksi ditahan untuk pemeriksaan.</p></div></div><div class="summary-strip cols-2"><div><span>Pesanan Batal</span><strong id="cancelledCount">0</strong></div><div><span>Batal + Income</span><strong id="cancelledIncomeCount">0</strong></div></div><div class="table-wrap"><table><thead><tr><th>No. Pesanan</th><th>Produk</th><th>Alasan</th><th class="num">Income</th><th>Status</th></tr></thead><tbody id="cancelledBody"></tbody></table></div></article>
       </section>
 
       <section id="view-ready" class="view">
         <article class="card">
           <div class="card-head"><div><h2>Siap Dicairkan</h2><p><b>Murni dari Income Excel.</b> Tidak ada estimasi HTML/manual di halaman ini.</p></div></div>
           <div class="message success"><b>Rule:</b> No. Pesanan harus ada di Income Excel, memiliki Order aktif/non-batal, dan belum pernah dicairkan.</div>
-          <div class="summary-strip"><div><span>Pesanan Final Siap</span><strong id="readyCount">0</strong></div><div><span>Nominal Final</span><strong id="readyTotal">Rp0</strong></div><div><span>Saldo Koreksi</span><strong id="readyCorrection">Rp0</strong></div><div><span>Perkiraan Total Batch</span><strong id="readyPayoutPreview">Rp0</strong></div></div>
+          <div class="summary-strip cols-4"><div><span>Pesanan Final Siap</span><strong id="readyCount">0</strong></div><div><span>Nominal Final</span><strong id="readyTotal">Rp0</strong></div><div><span>Saldo Koreksi</span><strong id="readyCorrection">Rp0</strong></div><div><span>Perkiraan Total Batch</span><strong id="readyPayoutPreview">Rp0</strong></div></div>
           <div class="filters five"><label>Order dari<input id="readyFrom" type="date"></label><label>Sampai<input id="readyTo" type="date"></label><label>Cari<input id="readySearch" type="search" placeholder="No pesanan / produk"></label><div class="filter-action"><button id="readyReset" class="btn ghost" type="button">Reset</button></div></div>
           <div id="readyProductPicker" class="product-picker"></div>
           <div class="batch-toolbar"><div><strong id="readySelectedCount">0 dipilih</strong><span id="readySelectedTotal">Rp0 final</span></div><button id="createFinalBatchBtn" class="btn success" type="button" disabled>Buat Batch Pencairan</button></div>
@@ -138,7 +138,7 @@
 
       <section id="view-settings" class="view">
         <div class="grid-2">
-          <article class="card"><div class="card-head"><div><h2>Status Sistem</h2></div></div><div class="status-list"><div><span>Versi</span><strong>2.0.0-clean</strong></div><div><span>Schema</span><strong>v2</strong></div><div><span>Firebase</span><strong id="settingsFirebase">-</strong></div><div><span>Admin UID</span><strong>terkunci</strong></div></div><button id="syncLedgerBtn" class="btn ghost" type="button">Sinkronkan Ledger Koreksi</button></article>
+          <article class="card"><div class="card-head"><div><h2>Status Sistem</h2></div></div><div class="status-list"><div><span>Versi</span><strong>2.0.1-ui</strong></div><div><span>Schema</span><strong>v2</strong></div><div><span>Firebase</span><strong id="settingsFirebase">-</strong></div><div><span>Admin UID</span><strong>terkunci</strong></div></div><button id="syncLedgerBtn" class="btn ghost" type="button">Sinkronkan Ledger Koreksi</button></article>
           <article class="card danger-card"><div class="card-head"><div><h2>Reset Database</h2><p>Hanya untuk mulai benar-benar kosong. Riwayat Batch juga akan terhapus.</p></div></div><label>Ketik <b>HAPUS SEMUA</b><input id="resetPhrase" type="text" autocomplete="off"></label><button id="resetDbBtn" class="btn danger" type="button">Hapus Semua Data Aplikasi</button><div id="settingsMessage" class="message warning">Jangan gunakan reset jika masih membutuhkan riwayat Batch.</div></article>
         </div>
       </section>
@@ -153,6 +153,6 @@
 
   <dialog id="batchDetailDialog" class="modal"><form method="dialog" class="modal-shell"><header><div><h2 id="batchDetailTitle">Detail Batch</h2><p id="batchDetailMeta"></p></div><button class="icon-btn" value="cancel">×</button></header><div class="modal-body" id="batchDetailBody"></div><footer><button class="btn primary" value="cancel">Tutup</button></footer></form></dialog>
 
-  <script type="module" src="./app.js?v=2.0.0-clean"></script>
+  <script type="module" src="./app.js?v=2.0.1-ui"></script>
 </body>
 </html>

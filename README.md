@@ -1,3 +1,5 @@
+# Shopee Payout Manager v2.0.1 UI Hotfix
+
 # Shopee Payout Manager — v2.0 Clean Rebuild
 
 Rebuild dari nol. Versi ini tidak menambal kode v1.x.
@@ -45,3 +47,11 @@ Upload/replace file berikut di root repository:
 - `app.js`
 
 Lalu tunggu GitHub Pages deploy dan lakukan hard refresh (`Ctrl+F5`).
+
+
+## v2.0.1 UI Hotfix
+- Summary strip mengikuti jumlah kartu, tanpa area abu-abu kosong.
+- Filter mobile responsif tanpa horizontal/nested scroll.
+- Tabel large di mobile memakai page scroll vertikal; hanya tabel yang boleh geser horizontal bila kolom banyak.
+- Bottom navigation fixed di viewport dan tetap terlihat saat halaman discroll.
+- Safe bottom padding mencegah konten tertutup bottom navigation.
