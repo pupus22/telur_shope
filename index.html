@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#2563eb">
   <title>Order, Pembayaran & Pencairan Shopee</title>
-  <link rel="stylesheet" href="styles.css?v=1.9.4">
+  <link rel="stylesheet" href="styles.css?v=1.10.0">
 </head>
 <body>
   <div id="authGate" class="auth-gate">
@@ -45,22 +45,27 @@
       </nav>
       <div class="sidebar-footer">
         <div class="sidebar-note">
-          <strong>Firebase v1.9.4</strong>
+          <strong>Firebase v1.10.0</strong>
           <span>Master tersimpan online di Cloud Firestore.</span>
         </div>
         <div class="sidebar-account">
           <span class="sidebar-account-label">Login sebagai</span>
           <strong id="userEmail" class="user-email"></strong>
           <button id="logoutBtn" type="button" class="btn sidebar-logout">Keluar</button>
+        <button id="mobileMenuClose" type="button" class="btn ghost mobile-menu-close">Tutup Menu</button>
         </div>
       </div>
     </aside>
+    <button id="sidebarBackdrop" class="sidebar-backdrop" aria-label="Tutup menu"></button>
 
     <main class="main">
       <header class="topbar">
-        <div>
-          <h1 id="pageTitle">Dashboard</h1>
-          <p id="pageSubtitle">Ringkasan Order, Pembayaran Shopee, dan Pencairan Anda.</p>
+        <div class="topbar-main">
+          <button id="mobileMenuBtn" type="button" class="mobile-menu-btn" aria-label="Buka menu">☰</button>
+          <div class="topbar-title-block">
+            <h1 id="pageTitle">Dashboard</h1>
+            <p id="pageSubtitle">Ringkasan Order, Pembayaran Shopee, dan Pencairan Anda.</p>
+          </div>
         </div>
         <div class="top-actions">
           <span id="dbStatus" class="status-pill">Menghubungkan Firebase…</span>
@@ -289,6 +294,14 @@
         </div>
       </section>
     </main>
+
+    <nav class="mobile-bottom-nav" aria-label="Navigasi bawah">
+      <button type="button" class="nav-btn mobile-bottom-btn active" data-view="dashboard"><span>⌂</span><small>Dashboard</small></button>
+      <button type="button" class="nav-btn mobile-bottom-btn" data-view="pending"><span>◔</span><small>Pending</small></button>
+      <button type="button" class="nav-btn mobile-bottom-btn" data-view="ready"><span>₨</span><small>Siap Cair</small></button>
+      <button type="button" class="nav-btn mobile-bottom-btn" data-view="history"><span>☷</span><small>Batch</small></button>
+      <button id="mobileMoreBtn" type="button" class="mobile-bottom-btn more-btn"><span>⋯</span><small>Lainnya</small></button>
+    </nav>
   </div>
 
   <dialog id="editDialog" class="dialog dialog-standard dialog-fullscreen">
@@ -333,6 +346,6 @@
 
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script>if(!window.XLSX){document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\\/script>')}</script>
-  <script type="module" src="app.js?v=1.9.4"></script>
+  <script type="module" src="app.js?v=1.10.0"></script>
 </body>
 </html>

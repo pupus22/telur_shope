@@ -26,7 +26,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
 
   const $ = (id) => document.getElementById(id);
   const $$ = (sel) => [...document.querySelectorAll(sel)];
-  const APP_VERSION = '1.9.4';
+  const APP_VERSION = '1.10.0';
   function on(id, event, handler){
     const el = $(id);
     if(!el){ console.warn(`[${APP_VERSION}] Elemen #${id} tidak ditemukan.`); return false; }
@@ -668,11 +668,27 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
   }
 
   const viewMeta={dashboard:['Dashboard','Ringkasan Order, Pembayaran Shopee, dan Pencairan.'],upload:['Upload Data','Import snapshot Order dan Income terbaru ke master.'],report:['Laporan Gabungan','Pembayaran dan Pencairan dipisahkan, dengan total mengikuti filter/pencarian.'],pending:['Pending Pembayaran','Pesanan aktif/non-batal yang belum ditemukan pada file pembayaran (Income).'],cancelled:['Pesanan Batal','Pesanan berstatus Batal dipisahkan dari Pending Pembayaran dan Siap Dicairkan.'],ready:['Siap Dicairkan','Pembayaran sudah masuk saldo Shopee tetapi belum masuk Batch Pencairan.'],history:['Riwayat Batch','Audit pencairan dan pembatalan batch.'],recon:['Rekonsiliasi','Pemeriksaan keseimbangan Pembayaran dan Pencairan.'],settings:['Backup & Data','Backup, restore, log edit, dan reset database Firebase.']};
-  function switchView(name){ $$('.view').forEach(v=>v.classList.toggle('active',v.id===`view-${name}`)); $$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===name)); $('pageTitle').textContent=viewMeta[name][0]; $('pageSubtitle').textContent=viewMeta[name][1]; window.scrollTo({top:0,behavior:'smooth'}); }
+  function setMobileNav(open){
+    document.body.classList.toggle('mobile-nav-open', !!open);
+  }
+  function closeMobileNav(){ setMobileNav(false); }
+  function switchView(name){
+    $$('.view').forEach(v=>v.classList.toggle('active',v.id===`view-${name}`));
+    $$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===name));
+    $('pageTitle').textContent=viewMeta[name][0];
+    $('pageSubtitle').textContent=viewMeta[name][1];
+    closeMobileNav();
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
 
   function bind(){
     $$('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));
     $$('[data-go]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.go)));
+    on('mobileMenuBtn','click',()=>setMobileNav(true));
+    on('mobileMenuClose','click',closeMobileNav);
+    on('sidebarBackdrop','click',closeMobileNav);
+    on('mobileMoreBtn','click',()=>setMobileNav(true));
+    window.addEventListener('resize',()=>{ if(window.innerWidth>760) closeMobileNav(); });
 
     on('orderFile','change',()=>{ const f=$('orderFile')?.files?.[0]; if($('orderFileName')) $('orderFileName').textContent=f?.name||'Belum dipilih'; });
     on('incomeFile','change',()=>{ const f=$('incomeFile')?.files?.[0]; if($('incomeFileName')) $('incomeFileName').textContent=f?.name||'Belum dipilih'; });
