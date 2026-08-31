@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#2563eb">
   <title>Order, Pembayaran & Pencairan Shopee</title>
-  <link rel="stylesheet" href="styles.css?v=1.9.3">
+  <link rel="stylesheet" href="styles.css?v=1.9.4">
 </head>
 <body>
   <div id="authGate" class="auth-gate">
@@ -37,6 +37,7 @@
         <button class="nav-btn" data-view="upload">Upload Data</button>
         <button class="nav-btn" data-view="report">Laporan Gabungan</button>
         <button class="nav-btn" data-view="pending">Pending Pembayaran</button>
+        <button class="nav-btn" data-view="cancelled">Pesanan Batal</button>
         <button class="nav-btn" data-view="ready">Siap Dicairkan</button>
         <button class="nav-btn" data-view="history">Riwayat Batch</button>
         <button class="nav-btn" data-view="recon">Rekonsiliasi</button>
@@ -44,7 +45,7 @@
       </nav>
       <div class="sidebar-footer">
         <div class="sidebar-note">
-          <strong>Firebase v1.9.3</strong>
+          <strong>Firebase v1.9.4</strong>
           <span>Master tersimpan online di Cloud Firestore.</span>
         </div>
         <div class="sidebar-account">
@@ -76,9 +77,10 @@
 
         <div class="grid-2">
           <article class="card">
-            <div class="card-head"><div><h2>Status Data</h2><p>Posisi setiap No. Pesanan pada master saat ini.</p></div></div>
+            <div class="card-head"><div><h2>Status Data</h2><p>Ringkasan status operasional Order dan posisi pencairan pada master saat ini.</p></div></div>
             <div class="status-list">
-              <div><span>Belum Dibayar Shopee</span><strong id="dashPending">0</strong></div>
+              <div><span>Pending Pembayaran (aktif)</span><strong id="dashPending">0</strong></div>
+              <div><span>Pesanan Batal</span><strong id="dashCancelled">0</strong></div>
               <div><span>Siap Dicairkan</span><strong id="dashReady">0</strong></div>
               <div><span>Sudah Dicairkan</span><strong id="dashDone">0</strong></div>
               <div><span>Pembayaran tanpa Order</span><strong id="dashIncomeOnly">0</strong></div>
@@ -93,7 +95,7 @@
 
         <article class="card">
           <div class="card-head">
-            <div><h2>Perlu Dicek</h2><p>No. Pesanan ganda di Order adalah normal dan hanya ditampilkan sebagai informasi.</p></div>
+            <div><h2>Informasi & Pemeriksaan</h2><p>Pesanan multi-produk adalah normal. Hanya kondisi yang berpotensi memengaruhi pembayaran/pencairan yang perlu diperiksa.</p></div>
             <button class="btn ghost" data-go="recon">Buka Rekonsiliasi</button>
           </div>
           <div id="anomalyGrid" class="anomaly-grid"></div>
@@ -131,7 +133,8 @@
               <li>No. Pesanan boleh ganda.</li>
               <li>Setiap baris produk/variasi tetap disimpan.</li>
               <li>Upload ulang baris yang sama akan memperbarui master, bukan menggandakan.</li>
-              <li>Belum Dibayar ditentukan dari No. Pesanan Order yang belum ditemukan pada file Income.</li>
+              <li>Pending Pembayaran hanya untuk pesanan non-batal yang belum ditemukan pada file Income.</li>
+              <li>Pesanan berstatus Batal dipisahkan dan alasan pembatalannya ikut disimpan.</li>
             </ul>
           </article>
           <article class="card">
@@ -159,7 +162,7 @@
             <label>Sampai<input id="reportReleaseTo" type="date"></label>
             <label>Tanggal order dari<input id="reportOrderFrom" type="date"></label>
             <label>Sampai<input id="reportOrderTo" type="date"></label>
-            <label>Status Pembayaran<select id="reportPaymentStatus"><option value="all">Semua</option><option value="unpaid">Belum Dibayar Shopee</option><option value="paid">Sudah Dibayar Shopee</option></select></label><label>Status Pencairan<select id="reportPayoutStatus"><option value="all">Semua</option><option value="notYet">Belum Dicairkan</option><option value="batched">Sudah Dicairkan</option></select></label>
+            <label>Status Order<select id="reportOrderStatus"><option value="all">Semua Status Order</option></select></label><label>Status Pembayaran<select id="reportPaymentStatus"><option value="all">Semua</option><option value="unpaid">Belum Ada Pembayaran</option><option value="paid">Sudah Ada Pembayaran</option></select></label><label>Status Pencairan<select id="reportPayoutStatus"><option value="all">Semua</option><option value="notYet">Siap / Belum Dicairkan</option><option value="batched">Sudah Dicairkan</option><option value="held">Ditahan / Perlu Dicek</option></select></label>
             <label>Cari<input id="reportSearch" type="search" placeholder="No pesanan / variasi / status"></label>
           </div>
           <div class="product-picker" id="reportProductBox">
@@ -172,7 +175,8 @@
           <div class="summary-strip">
             <div><span>Pesanan</span><strong id="reportCount">0</strong></div>
             <div><span>Total Pembayaran</span><strong id="reportIncomeTotal">Rp0</strong></div>
-            <div><span>Belum Dibayar</span><strong id="reportPendingCount">0</strong></div>
+            <div><span>Pending Aktif</span><strong id="reportPendingCount">0</strong></div>
+            <div><span>Pesanan Batal</span><strong id="reportCancelledCount">0</strong></div>
             <div><span>Belum Dicairkan</span><strong id="reportReadyCount">0</strong></div><div><span>Sudah Dicairkan</span><strong id="reportBatchedCount">0</strong></div>
           </div>
           <div id="reportSearchNote" class="message info">Hasil pencarian: 0 pesanan.</div><div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Nama Produk / Variasi</th><th>Status Order</th><th>Status Pembayaran</th><th class="num">Pembayaran</th><th>Tanggal Order</th><th>Tgl Pembayaran / Dana Dilepas</th><th>Status Pencairan</th><th>Aksi</th></tr></thead><tbody id="reportBody"></tbody></table></div>
@@ -181,9 +185,33 @@
 
       <section id="view-pending" class="view">
         <article class="card">
-          <div class="card-head"><div><h2>Pending Pembayaran</h2><p>Ada di file Order tetapi pembayaran belum ditemukan pada file Income.</p></div></div>
-          <div class="summary-strip"><div><span>Belum Dibayar</span><strong id="pendingCount">0</strong></div><div><span>Baris Produk</span><strong id="pendingLines">0</strong></div></div>
+          <div class="card-head"><div><h2>Pending Pembayaran Shopee</h2><p>Hanya pesanan <b>aktif/non-batal</b> yang belum ditemukan pada file Income. Pesanan Batal tidak dihitung di halaman ini.</p></div></div>
+          <div class="filters five">
+            <label>Tanggal Order Dari<input id="pendingFrom" type="date"></label>
+            <label>Tanggal Order Sampai<input id="pendingTo" type="date"></label>
+            <label>Status Order<select id="pendingStatus"><option value="all">Semua Status Aktif</option></select></label>
+            <label>Cari<input id="pendingSearch" type="search" placeholder="No pesanan / produk / variasi"></label>
+            <div class="filter-action"><button id="resetPendingFilter" class="btn ghost">Reset Filter</button></div>
+          </div>
+          <div class="summary-strip"><div><span>Pending Aktif</span><strong id="pendingCount">0</strong></div><div><span>Baris Produk</span><strong id="pendingLines">0</strong></div></div>
+          <div id="pendingStatusSummary" class="mini-chip-row"></div>
           <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Status Order</th><th>Tanggal Order</th><th>Aksi</th></tr></thead><tbody id="pendingBody"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="view-cancelled" class="view">
+        <article class="card">
+          <div class="card-head"><div><h2>Pesanan Batal</h2><p>Pesanan berstatus Batal dipisahkan dari Pending Pembayaran dan tidak dapat masuk Batch Pencairan otomatis.</p></div></div>
+          <div class="filters five">
+            <label>Tanggal Order Dari<input id="cancelledFrom" type="date"></label>
+            <label>Tanggal Order Sampai<input id="cancelledTo" type="date"></label>
+            <label>Pembayaran<select id="cancelledPayment"><option value="all">Semua</option><option value="none">Tanpa Pembayaran</option><option value="withIncome">Ada Pembayaran</option><option value="batched">Sudah Masuk Batch</option></select></label>
+            <label>Cari<input id="cancelledSearch" type="search" placeholder="No pesanan / produk / alasan batal"></label>
+            <div class="filter-action"><button id="resetCancelledFilter" class="btn ghost">Reset Filter</button></div>
+          </div>
+          <div class="summary-strip"><div><span>Pesanan Batal</span><strong id="cancelledCount">0</strong></div><div><span>Batal + Ada Pembayaran</span><strong id="cancelledWithIncome">0</strong></div><div><span>Batal + Sudah Dicairkan</span><strong id="cancelledBatched">0</strong></div></div>
+          <div class="message warning">Jika pesanan Batal memiliki Pembayaran Shopee, data ditahan dari daftar Siap Dicairkan dan dimasukkan ke Rekonsiliasi untuk diperiksa.</div>
+          <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Alasan Pembatalan</th><th>Tanggal Order</th><th>Status Pembayaran</th><th class="num">Nominal</th><th>Status Pencairan</th><th>Aksi</th></tr></thead><tbody id="cancelledBody"></tbody></table></div>
         </article>
       </section>
 
@@ -225,13 +253,13 @@
           <article class="kpi"><span>Total Pembayaran Master</span><strong id="reconIncome">Rp0</strong><small id="reconIncomeN">0 pesanan</small></article>
           <article class="kpi"><span>Sudah Dicairkan</span><strong id="reconBatched">Rp0</strong><small id="reconBatchedN">0 pesanan</small></article>
           <article class="kpi"><span>Belum Dicairkan</span><strong id="reconReady">Rp0</strong><small id="reconReadyN">0 pesanan</small></article>
-          <article class="kpi"><span>Selisih</span><strong id="reconDiff">Rp0</strong><small>Target harus Rp0</small></article>
+          <article class="kpi"><span>Ditahan / Perlu Dicek</span><strong id="reconHeld">Rp0</strong><small id="reconHeldN">0 pesanan</small></article>
         </div>
         <article class="card">
-          <div class="card-head"><div><h2>Rekonsiliasi</h2><p>Total Pembayaran = Sudah Dicairkan + Belum Dicairkan.</p></div></div>
+          <div class="card-head"><div><h2>Rekonsiliasi</h2><p>Total Pembayaran = Sudah Dicairkan + Siap Dicairkan + Ditahan/Perlu Dicek.</p></div></div>
           <div id="reconMessage" class="message"></div>
           <div class="recon-equation">
-            <span>Total Pembayaran</span><b>=</b><span>Sudah Dicairkan</span><b>+</b><span>Belum Dicairkan</span>
+            <span>Total Pembayaran</span><b>=</b><span>Sudah Dicairkan</span><b>+</b><span>Siap Dicairkan</span><b>+</b><span>Ditahan / Perlu Dicek</span>
           </div>
         </article>
         <article class="card">
@@ -270,6 +298,7 @@
       <div class="edit-grid">
         <label>No. Pesanan<input id="editOrderNo" type="text"></label>
         <label>Status Order<input id="editOrderStatus" type="text"></label>
+        <label>Alasan Pembatalan<input id="editCancelReason" type="text" placeholder="Diisi jika status Batal"></label>
         <label>Tanggal Order<input id="editOrderDate" type="date"></label>
         <label>Total Pembayaran<input id="editIncomeAmount" type="number" step="1" min="0"></label>
         <label>Tanggal Pembayaran / Dana Dilepas<input id="editReleasedDate" type="date"></label>
@@ -304,6 +333,6 @@
 
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script>if(!window.XLSX){document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\\/script>')}</script>
-  <script type="module" src="app.js?v=1.9.3"></script>
+  <script type="module" src="app.js?v=1.9.4"></script>
 </body>
 </html>

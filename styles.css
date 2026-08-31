@@ -162,7 +162,7 @@
   .batch-detail-table{min-width:820px;}
 }
 
-/* v1.9.3 — sidebar desktop fixed + menu scroll + logout di sidebar */
+/* v1.9.4 — sidebar desktop fixed + menu scroll + logout di sidebar */
 @media (min-width:761px){
   .app-shell{
     display:block;
@@ -233,7 +233,7 @@
   .sidebar-footer{display:none;}
 }
 
-/* v1.9.3 — satu standar ukuran untuk seluruh popup/modal */
+/* v1.9.4 — satu standar ukuran untuk seluruh popup/modal */
 .dialog-standard,
 .dialog-fullscreen,
 .dialog-batch-detail{
@@ -311,3 +311,9 @@
     border-radius:14px !important;
   }
 }
+
+/* v1.9.4 — status operasional terpisah dari pembayaran/pencairan */
+.badge.review{background:#fff2d9;color:#8a5100;border:1px solid #f2d29a}
+.mini-chip-row{display:flex;flex-wrap:wrap;gap:8px;margin:-3px 0 14px}
+.mini-chip{display:inline-flex;gap:5px;align-items:center;border:1px solid var(--line);background:#f8f9fc;border-radius:999px;padding:6px 10px;color:var(--muted);font-size:12px}
+.mini-chip b{color:var(--text);font-weight:700}

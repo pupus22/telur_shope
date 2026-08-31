@@ -26,7 +26,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
 
   const $ = (id) => document.getElementById(id);
   const $$ = (sel) => [...document.querySelectorAll(sel)];
-  const APP_VERSION = '1.9.3';
+  const APP_VERSION = '1.9.4';
   function on(id, event, handler){
     const el = $(id);
     if(!el){ console.warn(`[${APP_VERSION}] Elemen #${id} tidak ditemukan.`); return false; }
@@ -66,6 +66,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     return {
       orderNo,
       status:first.status||'',
+      cancelReason:first.cancelReason||'',
       orderDate:first.orderDate||'',
       orderDateTime:first.orderDateTime||'',
       lastImportedAt:first.lastImportedAt||new Date().toISOString(),
@@ -82,7 +83,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     const items=Array.isArray(data.items)?data.items:[];
     return items.map((item,idx)=>({
       lineKey:item.lineKey||`${orderNo}|item|${idx+1}`, orderNo, product:item.product||'', variation:item.variation||'', skuRef:item.skuRef||'',
-      status:data.status||'', orderDate:data.orderDate||'', orderDateTime:data.orderDateTime||'',
+      status:data.status||'', cancelReason:data.cancelReason||'', orderDate:data.orderDate||'', orderDateTime:data.orderDateTime||'',
       quantity:Number(item.quantity)||0, productCount:Number(item.productCount)||0, subtotal:Number(item.subtotal)||0,
       lastImportedAt:item.lastImportedAt||data.lastImportedAt||null, lastManualEditAt:item.lastManualEditAt||data.lastManualEditAt||null
     }));
@@ -148,13 +149,24 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     return m;
   }
   function incomeMap(){ return new Map(cache.incomes.map(x=>[x.orderNo,x])); }
+  function isCancelledStatus(status){
+    const s=normalizeText(status).toLowerCase();
+    return s==='batal' || s.startsWith('batal ') || s.includes('dibatalkan');
+  }
   function unionRecords(){
     const og=orderGroups(), im=incomeMap(); const keys=new Set([...og.keys(),...im.keys()]);
     return [...keys].map(orderNo=>{
       const lines=og.get(orderNo)||[], inc=im.get(orderNo)||null;
       const first=lines[0]||{};
-      const status=!inc?'pending':!lines.length?'incomeOnly':inc.batchId?'batched':'ready';
-      return {orderNo,lines,income:inc,status,orderDate:first.orderDate||inc?.orderCreatedDate||'',orderStatus:first.status||'',releasedDate:inc?.releasedDate||'',amount:inc?.amount||0};
+      const orderStatus=first.status||'';
+      const isCancelled=!!lines.length && isCancelledStatus(orderStatus);
+      let status;
+      if(!lines.length && inc) status='incomeOnly';
+      else if(isCancelled) status='cancelled';
+      else if(!inc) status='pending';
+      else if(inc.batchId) status='batched';
+      else status='ready';
+      return {orderNo,lines,income:inc,status,isCancelled,orderDate:first.orderDate||inc?.orderCreatedDate||'',orderStatus,cancelReason:first.cancelReason||'',releasedDate:inc?.releasedDate||'',amount:inc?.amount||0};
     }).sort((a,b)=>(b.releasedDate||b.orderDate).localeCompare(a.releasedDate||a.orderDate)||b.orderNo.localeCompare(a.orderNo));
   }
 
@@ -191,6 +203,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
       output.push({
         lineKey:`${base}|${occ}`, orderNo, product, variation, skuRef,
         status:normalizeText(val(row,map,'Status Pesanan')),
+        cancelReason:normalizeText(val(row,map,'Alasan Pembatalan')),
         orderDate:dateOnly(val(row,map,'Waktu Pesanan Dibuat')),
         orderDateTime:normalizeText(val(row,map,'Waktu Pesanan Dibuat')),
         quantity:Number(val(row,map,'Jumlah'))||0,
@@ -316,64 +329,119 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
   function selectAllProducts(kind){ productSelections[kind]=null; renderProductChoices(kind); if(kind==='report')renderReport();else renderReady(); }
   function clearAllProducts(kind){ productSelections[kind]=new Set(); renderProductChoices(kind); if(kind==='report')renderReport();else renderReady(); }
   function paymentBadge(rec){
+    if(rec.isCancelled){
+      return rec.income?'<span class="badge review">Ada Pembayaran · Perlu Dicek</span>':'<span class="badge cancelled">Tidak Ada Pembayaran</span>';
+    }
     return rec.income?'<span class="badge paid">Sudah Dibayar Shopee</span>':'<span class="badge pending">Belum Dibayar Shopee</span>';
   }
   function payoutBadge(rec){
     if(!rec.income)return '<span class="badge neutral">-</span>';
     if(rec.income.batchId)return `<span class="badge done">Sudah Dicairkan · ${esc(rec.income.batchId)}</span>`;
+    if(rec.isCancelled || rec.status==='incomeOnly') return '<span class="badge review">Ditahan / Perlu Dicek</span>';
     return '<span class="badge ready">Belum Dicairkan</span>';
   }
 
   function renderDashboard(){
-    const u=unionRecords(), inc=cache.incomes, activeIncomes=inc.filter(x=>x.batchId), ready=inc.filter(x=>!x.batchId);
-    const groups=orderGroups();
+    const u=unionRecords(), inc=cache.incomes, groups=orderGroups();
+    const readyRecords=u.filter(x=>x.status==='ready');
+    const ready=readyRecords.map(x=>x.income).filter(Boolean);
+    const activeIncomes=inc.filter(x=>x.batchId);
+    const cancelled=u.filter(x=>x.status==='cancelled');
+    const cancelledWithIncome=cancelled.filter(x=>x.income);
     $('kpiOrders').textContent=groups.size; $('kpiOrderLines').textContent=`${cache.orders.length} baris produk`;
     $('kpiIncome').textContent=money(inc.reduce((s,x)=>s+x.amount,0)); $('kpiIncomeCount').textContent=`${inc.length} pesanan`;
-    $('kpiReady').textContent=money(ready.reduce((s,x)=>s+x.amount,0)); $('kpiReadyCount').textContent=`${ready.length} pesanan`;
-    $('kpiBatched').textContent=money(activeIncomes.reduce((s,x)=>s+x.amount,0)); $('kpiBatchedCount').textContent=`${activeIncomes.length} pesanan`;
-    const counts={pending:0,ready:0,batched:0,incomeOnly:0}; u.forEach(x=>counts[x.status]++);
-    $('dashPending').textContent=counts.pending; $('dashReady').textContent=counts.ready; $('dashDone').textContent=counts.batched; $('dashIncomeOnly').textContent=counts.incomeOnly;
+    $('kpiReady').textContent=money(ready.reduce((s,x)=>s+x.amount,0)); $('kpiReadyCount').textContent=`${ready.length} pesanan valid`;
+    $('kpiBatched').textContent=money(activeIncomes.reduce((s,x)=>s+x.amount,0)); $('kpiBatchedCount').textContent=`${activeIncomes.length} pesanan masuk batch`;
+    const counts={pending:0,ready:0,batched:0,incomeOnly:0,cancelled:0}; u.forEach(x=>{ if(counts[x.status]!==undefined) counts[x.status]++; });
+    $('dashPending').textContent=counts.pending; $('dashCancelled').textContent=counts.cancelled; $('dashReady').textContent=counts.ready; $('dashDone').textContent=activeIncomes.length; $('dashIncomeOnly').textContent=counts.incomeOnly;
     if(cache.uploads[0]){
       const x=cache.uploads[0]; $('latestUpload').innerHTML=`<div class="status-list"><div><span>Waktu</span><strong>${esc(localDateTime(x.createdAt))}</strong></div><div><span>Order</span><strong>${x.orderUnique} pesanan / ${x.orderLines} baris</strong></div><div><span>Pembayaran</span><strong>${x.incomeCount} pesanan</strong></div><div><span>Data baru</span><strong>${x.orderNew} baris Order / ${x.incomeNew} Pembayaran</strong></div></div>`;
     }else $('latestUpload').textContent='Belum ada upload.';
 
-    const dupGroups=[...groups.values()].filter(v=>v.length>1).length;
+    const multiProduct=[...groups.values()].filter(v=>v.length>1).length;
     const an=[
-      ['Pesanan multi-produk (normal)',dupGroups],['Pembayaran tanpa Order',counts.incomeOnly],['Pembayaran berubah setelah Pencairan',cache.anomalies.filter(x=>x.type==='Pembayaran berubah setelah Pencairan').length],['Anomali tersimpan',cache.anomalies.length]
+      ['Pesanan multi-produk (normal)',multiProduct],
+      ['Pesanan Batal + ada Pembayaran',cancelledWithIncome.length],
+      ['Pembayaran tanpa Order',counts.incomeOnly],
+      ['Pembayaran berubah setelah Pencairan',cache.anomalies.filter(x=>x.type==='Pembayaran berubah setelah Pencairan').length]
     ];
     $('anomalyGrid').innerHTML=an.map(([a,b])=>`<div class="anomaly-box"><span>${esc(a)}</span><strong>${b}</strong></div>`).join('');
   }
-
   function renderUploads(){
     $('uploadHistoryBody').innerHTML=cache.uploads.length?cache.uploads.map(x=>`<tr><td>${esc(localDateTime(x.createdAt))}</td><td>${esc(x.orderFile)}</td><td>${esc(x.incomeFile)}</td><td>${x.orderUnique} unik<br><span class="muted">${x.orderLines} baris</span></td><td>${x.incomeCount}</td><td>Order +${x.orderNew} / ~${x.orderUpdated}<br>Pembayaran +${x.incomeNew} / ~${x.incomeUpdated}</td></tr>`).join(''):'<tr><td colspan="6" class="muted">Belum ada riwayat upload.</td></tr>';
   }
 
   function reportFilter(rec){
-    const rf=$('reportReleaseFrom').value, rt=$('reportReleaseTo').value, of=$('reportOrderFrom').value, ot=$('reportOrderTo').value, ps=$('reportPaymentStatus').value, po=$('reportPayoutStatus').value, products=productSelection('report'), q=$('reportSearch').value.trim().toLowerCase();
+    const rf=$('reportReleaseFrom').value, rt=$('reportReleaseTo').value, of=$('reportOrderFrom').value, ot=$('reportOrderTo').value, ps=$('reportPaymentStatus').value, po=$('reportPayoutStatus').value, os=$('reportOrderStatus').value, products=productSelection('report'), q=$('reportSearch').value.trim().toLowerCase();
     if(rf && (!rec.releasedDate || rec.releasedDate<rf))return false; if(rt && (!rec.releasedDate || rec.releasedDate>rt))return false;
     if(of && (!rec.orderDate || rec.orderDate<of))return false; if(ot && (!rec.orderDate || rec.orderDate>ot))return false;
     if(ps==='unpaid' && rec.income)return false; if(ps==='paid' && !rec.income)return false;
-    if(po==='notYet' && (!rec.income || rec.income.batchId))return false; if(po==='batched' && (!rec.income || !rec.income.batchId))return false;
+    if(os!=='all' && rec.orderStatus!==os)return false;
+    if(po==='notYet' && rec.status!=='ready')return false; if(po==='batched' && (!rec.income || !rec.income.batchId))return false; if(po==='held' && !(rec.income && !rec.income.batchId && (rec.isCancelled || rec.status==='incomeOnly')))return false;
     if(!productLinesMatchSelection(rec.lines,products))return false;
-    if(q){ const hay=[rec.orderNo,...rec.lines.flatMap(x=>[x.product,x.variation]),rec.orderStatus].join(' ').toLowerCase(); if(!hay.includes(q))return false; }
+    if(q){ const hay=[rec.orderNo,...rec.lines.flatMap(x=>[x.product,x.variation]),rec.orderStatus,rec.cancelReason].join(' ').toLowerCase(); if(!hay.includes(q))return false; }
     return true;
+  }
+  function renderReportOrderStatusOptions(){
+    const el=$('reportOrderStatus'); if(!el)return;
+    const current=el.value||'all';
+    const statuses=unique(cache.orders.map(x=>normalizeText(x.status))).sort((a,b)=>a.localeCompare(b,'id'));
+    el.innerHTML='<option value="all">Semua Status Order</option>'+statuses.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
+    el.value=statuses.includes(current)?current:'all';
   }
   function currentReport(){return unionRecords().filter(reportFilter);}
   function renderReport(){
     const rows=currentReport();
-    const paid=rows.filter(x=>x.income), ready=rows.filter(x=>x.status==='ready'), batched=rows.filter(x=>x.status==='batched');
+    const paid=rows.filter(x=>x.income), ready=rows.filter(x=>x.status==='ready'), batched=rows.filter(x=>x.income?.batchId);
     const paidTotal=paid.reduce((s,x)=>s+x.amount,0), readyTotal=ready.reduce((s,x)=>s+x.amount,0), batchedTotal=batched.reduce((s,x)=>s+x.amount,0);
-    $('reportCount').textContent=rows.length; $('reportIncomeTotal').textContent=money(paidTotal); $('reportPendingCount').textContent=rows.filter(x=>x.status==='pending').length; $('reportReadyCount').textContent=ready.length; $('reportBatchedCount').textContent=batched.length;
+    $('reportCount').textContent=rows.length; $('reportIncomeTotal').textContent=money(paidTotal); $('reportPendingCount').textContent=rows.filter(x=>x.status==='pending').length; $('reportCancelledCount').textContent=rows.filter(x=>x.status==='cancelled').length; $('reportReadyCount').textContent=ready.length; $('reportBatchedCount').textContent=batched.length;
     const productLabel=productSelectionSummary('report');
     setMessage('reportSearchNote',`Hasil pencarian/filter · ${productLabel}: ${rows.length} pesanan · Pembayaran Shopee ${money(paidTotal)} · Belum dicairkan ${money(readyTotal)} · Sudah dicairkan ${money(batchedTotal)}.`,'info');
     $('reportBody').innerHTML=rows.length?rows.map(r=>`<tr><td><b>${esc(r.orderNo)}</b>${r.lines.length>1?`<br><span class="muted">${r.lines.length} item dalam 1 pesanan</span>`:''}</td><td>${productHtml(r.lines)}</td><td>${esc(r.orderStatus||'-')}</td><td>${paymentBadge(r)}</td><td class="num">${r.income?money(r.amount):'-'}</td><td>${esc(r.orderDate||'-')}</td><td>${esc(r.releasedDate||'-')}</td><td>${payoutBadge(r)}</td><td><button class="btn ghost edit-order" data-order="${esc(r.orderNo)}">Edit</button></td></tr>`).join(''):'<tr><td colspan="9" class="muted">Tidak ada data sesuai filter.</td></tr>';
     $$('.edit-order').forEach(b=>b.addEventListener('click',()=>showEditOrder(b.dataset.order)));
   }
 
+  function pendingBaseRecords(){ return unionRecords().filter(x=>x.status==='pending'); }
+  function renderPendingStatusOptions(baseRows){
+    const el=$('pendingStatus'); if(!el)return;
+    const current=el.value||'all';
+    const statuses=unique(baseRows.map(x=>x.orderStatus)).sort((a,b)=>a.localeCompare(b,'id'));
+    el.innerHTML='<option value="all">Semua Status Aktif</option>'+statuses.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
+    el.value=statuses.includes(current)?current:'all';
+  }
+  function currentPending(){
+    const base=pendingBaseRecords(); renderPendingStatusOptions(base);
+    const from=$('pendingFrom').value,to=$('pendingTo').value,status=$('pendingStatus').value,q=$('pendingSearch').value.trim().toLowerCase();
+    return base.filter(r=>{
+      if(from && (!r.orderDate||r.orderDate<from))return false;
+      if(to && (!r.orderDate||r.orderDate>to))return false;
+      if(status!=='all' && r.orderStatus!==status)return false;
+      if(q){const hay=[r.orderNo,r.orderStatus,...r.lines.flatMap(x=>[x.product,x.variation])].join(' ').toLowerCase();if(!hay.includes(q))return false;}
+      return true;
+    });
+  }
   function renderPending(){
-    const rows=unionRecords().filter(x=>x.status==='pending'); $('pendingCount').textContent=rows.length; $('pendingLines').textContent=rows.reduce((s,x)=>s+x.lines.length,0);
-    $('pendingBody').innerHTML=rows.length?rows.map(r=>`<tr><td><b>${esc(r.orderNo)}</b></td><td>${productHtml(r.lines)}</td><td>${esc(r.orderStatus||'-')}</td><td>${esc(r.orderDate||'-')}</td><td><button class="btn ghost edit-order-pending" data-order="${esc(r.orderNo)}">Edit</button></td></tr>`).join(''):'<tr><td colspan="5" class="muted">Tidak ada pesanan yang menunggu Pembayaran Shopee.</td></tr>';
+    const rows=currentPending(); $('pendingCount').textContent=rows.length; $('pendingLines').textContent=rows.reduce((s,x)=>s+x.lines.length,0);
+    const breakdown=Object.entries(rows.reduce((m,r)=>(m[r.orderStatus||'Tanpa Status']=(m[r.orderStatus||'Tanpa Status']||0)+1,m),{})).sort((a,b)=>a[0].localeCompare(b[0],'id'));
+    $('pendingStatusSummary').innerHTML=breakdown.length?breakdown.map(([k,v])=>`<span class="mini-chip"><b>${esc(k)}</b> ${v}</span>`).join(''):'<span class="muted">Tidak ada pending aktif pada filter ini.</span>';
+    $('pendingBody').innerHTML=rows.length?rows.map(r=>`<tr><td><b>${esc(r.orderNo)}</b></td><td>${productHtml(r.lines)}</td><td>${esc(r.orderStatus||'-')}</td><td>${esc(r.orderDate||'-')}</td><td><button class="btn ghost edit-order-pending" data-order="${esc(r.orderNo)}">Edit</button></td></tr>`).join(''):'<tr><td colspan="5" class="muted">Tidak ada pesanan aktif yang menunggu Pembayaran Shopee.</td></tr>';
     $$('.edit-order-pending').forEach(b=>b.addEventListener('click',()=>showEditOrder(b.dataset.order)));
+  }
+
+  function currentCancelled(){
+    const from=$('cancelledFrom').value,to=$('cancelledTo').value,pay=$('cancelledPayment').value,q=$('cancelledSearch').value.trim().toLowerCase();
+    return unionRecords().filter(x=>x.status==='cancelled').filter(r=>{
+      if(from && (!r.orderDate||r.orderDate<from))return false; if(to && (!r.orderDate||r.orderDate>to))return false;
+      if(pay==='none' && r.income)return false; if(pay==='withIncome' && !r.income)return false; if(pay==='batched' && !r.income?.batchId)return false;
+      if(q){const hay=[r.orderNo,r.orderStatus,r.cancelReason,...r.lines.flatMap(x=>[x.product,x.variation])].join(' ').toLowerCase();if(!hay.includes(q))return false;}
+      return true;
+    });
+  }
+  function renderCancelled(){
+    const rows=currentCancelled(), withIncome=rows.filter(x=>x.income), batched=rows.filter(x=>x.income?.batchId);
+    $('cancelledCount').textContent=rows.length; $('cancelledWithIncome').textContent=withIncome.length; $('cancelledBatched').textContent=batched.length;
+    $('cancelledBody').innerHTML=rows.length?rows.map(r=>`<tr><td><b>${esc(r.orderNo)}</b></td><td>${productHtml(r.lines)}</td><td>${esc(r.cancelReason||'-')}</td><td>${esc(r.orderDate||'-')}</td><td>${paymentBadge(r)}</td><td class="num">${r.income?money(r.amount):'-'}</td><td>${payoutBadge(r)}</td><td><button class="btn ghost edit-order-cancelled" data-order="${esc(r.orderNo)}">Edit</button></td></tr>`).join(''):'<tr><td colspan="8" class="muted">Tidak ada pesanan batal pada filter ini.</td></tr>';
+    $$('.edit-order-cancelled').forEach(b=>b.addEventListener('click',()=>showEditOrder(b.dataset.order)));
   }
 
   function readyOrderDate(income,groups){
@@ -382,20 +450,18 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
   }
   function currentReady(){
     const groups=orderGroups(), from=$('readyFrom').value,to=$('readyTo').value,products=productSelection('ready'),q=$('readySearch').value.trim().toLowerCase();
-    return cache.incomes.filter(x=>!x.batchId).filter(x=>{
-      const lines=groups.get(x.orderNo)||[];
-      const d=readyOrderDate(x,groups);
+    return unionRecords().filter(r=>r.status==='ready').filter(r=>{
+      const lines=r.lines||[], d=r.orderDate||r.income?.orderCreatedDate||'';
       if(from && (!d||d<from)) return false;
       if(to && (!d||d>to)) return false;
       if(!productLinesMatchSelection(lines,products)) return false;
       if(q){
-        const hay=[x.orderNo,...lines.flatMap(line=>[line.product,line.variation,line.status]),readyOrderDate(x,groups),x.releasedDate].join(' ').toLowerCase();
+        const hay=[r.orderNo,...lines.flatMap(line=>[line.product,line.variation,line.status]),d,r.releasedDate].join(' ').toLowerCase();
         if(!hay.includes(q)) return false;
       }
       return true;
-    }).sort((a,b)=>{
-      const da=readyOrderDate(a,groups)||'';
-      const db=readyOrderDate(b,groups)||'';
+    }).map(r=>r.income).filter(Boolean).sort((a,b)=>{
+      const da=readyOrderDate(a,groups)||'', db=readyOrderDate(b,groups)||'';
       return db.localeCompare(da)||b.orderNo.localeCompare(a.orderNo);
     });
   }
@@ -444,13 +510,16 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     try{
       await runTransaction(db,async tx=>{
         const incomeRefs=rows.map(x=>doc(db,STORES.incomes,x.orderNo));
-        const snaps=[];
-        for(const ref of incomeRefs) snaps.push(await tx.get(ref));
+        const orderRefs=rows.map(x=>doc(db,STORES.orders,x.orderNo));
+        const incomeSnaps=[], orderSnaps=[];
+        for(const ref of incomeRefs) incomeSnaps.push(await tx.get(ref));
+        for(const ref of orderRefs) orderSnaps.push(await tx.get(ref));
         const conflicts=[];
-        snaps.forEach((snap,i)=>{ if(!snap.exists()) conflicts.push(`${rows[i].orderNo} (Income hilang)`); else if(snap.data().batchId) conflicts.push(`${rows[i].orderNo} (${snap.data().batchId})`); });
-        if(conflicts.length) throw new Error(`Pencairan dibatalkan karena ${conflicts.length} pesanan sudah berubah/masuk batch: ${conflicts.slice(0,5).join(', ')}${conflicts.length>5?'…':''}`);
+        incomeSnaps.forEach((snap,i)=>{ if(!snap.exists()) conflicts.push(`${rows[i].orderNo} (Income hilang)`); else if(snap.data().batchId) conflicts.push(`${rows[i].orderNo} (${snap.data().batchId})`); });
+        orderSnaps.forEach((snap,i)=>{ if(!snap.exists()) conflicts.push(`${rows[i].orderNo} (Order hilang)`); else if(isCancelledStatus(snap.data().status||'')) conflicts.push(`${rows[i].orderNo} (Status Batal)`); });
+        if(conflicts.length) throw new Error(`Pencairan dibatalkan karena ${conflicts.length} pesanan tidak lagi memenuhi syarat: ${conflicts.slice(0,5).join(', ')}${conflicts.length>5?'…':''}`);
         tx.set(doc(db,STORES.batches,batchId),batch);
-        snaps.forEach((snap,i)=>tx.update(incomeRefs[i],{batchId,lastBatchAt:createdAt}));
+        incomeSnaps.forEach((snap,i)=>tx.update(incomeRefs[i],{batchId,lastBatchAt:createdAt}));
       });
       await reloadCache(); renderAll(); setMessage('batchMessage',`${batchId} berhasil dibuat: ${rows.length} pesanan, total ${money(total)}. Firestore mengunci No. Pesanan agar tidak dapat dicairkan ganda.`,'success');
     }catch(err){ console.error(err); setMessage('batchMessage',err.message||String(err),'error'); }
@@ -509,6 +578,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     editingOrderNo=orderNo;
     $('editOrderNo').value=orderNo;
     $('editOrderStatus').value=rec.orderStatus||'';
+    $('editCancelReason').value=rec.cancelReason||'';
     $('editOrderDate').value=rec.orderDate||'';
     $('editIncomeAmount').value=rec.income?rec.amount:'';
     $('editReleasedDate').value=rec.releasedDate||'';
@@ -528,9 +598,11 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     const lineNodes=[...$('editLines').querySelectorAll('.edit-line')];
     const updatedLines=oldLines.map((line,i)=>{
       const node=lineNodes[i];
-      return {...line,orderNo:newNo,status:normalizeText($('editOrderStatus').value),orderDate:$('editOrderDate').value||'',product:node?normalizeText(node.querySelector('.edit-product').value):line.product,variation:node?normalizeText(node.querySelector('.edit-variation').value):line.variation,quantity:node?Math.max(0,Number(node.querySelector('.edit-qty').value)||0):line.quantity,lastManualEditAt:new Date().toISOString()};
+      return {...line,orderNo:newNo,status:normalizeText($('editOrderStatus').value),cancelReason:normalizeText($('editCancelReason').value),orderDate:$('editOrderDate').value||'',product:node?normalizeText(node.querySelector('.edit-product').value):line.product,variation:node?normalizeText(node.querySelector('.edit-variation').value):line.variation,quantity:node?Math.max(0,Number(node.querySelector('.edit-qty').value)||0):line.quantity,lastManualEditAt:new Date().toISOString()};
     });
     const amountRaw=$('editIncomeAmount').value, released=$('editReleasedDate').value||'', batchId=$('editBatchId').value||null;
+    const newStatus=normalizeText($('editOrderStatus').value);
+    if(isCancelledStatus(newStatus) && batchId && !confirm(`Status Order adalah Batal tetapi pesanan akan tetap ditautkan ke ${batchId}. Ini akan ditandai sebagai kondisi yang perlu diperiksa. Lanjutkan?`)) return;
     const hasIncome=amountRaw!=='' || released!=='' || !!oldIncome;
     const amount=Math.max(0,Number(amountRaw)||0);
     if(oldIncome && newNo!==oldNo) await deleteOne(STORES.incomes,oldNo);
@@ -560,21 +632,25 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
   }
 
   function renderRecon(){
-    const total=cache.incomes.reduce((s,x)=>s+x.amount,0), bat=cache.incomes.filter(x=>x.batchId), ready=cache.incomes.filter(x=>!x.batchId), batTotal=bat.reduce((s,x)=>s+x.amount,0), readyTotal=ready.reduce((s,x)=>s+x.amount,0), diff=total-batTotal-readyTotal;
-    $('reconIncome').textContent=money(total); $('reconIncomeN').textContent=`${cache.incomes.length} pesanan`; $('reconBatched').textContent=money(batTotal); $('reconBatchedN').textContent=`${bat.length} pesanan`; $('reconReady').textContent=money(readyTotal); $('reconReadyN').textContent=`${ready.length} pesanan`; $('reconDiff').textContent=money(diff);
-    setMessage('reconMessage',diff===0?'Rekonsiliasi seimbang. Semua Pembayaran terbagi antara Sudah Dicairkan dan Belum Dicairkan.':`Ada selisih ${money(diff)}. Data perlu diperiksa.`,diff===0?'success':'error');
-    const union=unionRecords(), rows=[...cache.anomalies]; union.filter(x=>x.status==='incomeOnly').forEach(x=>rows.push({type:'Pembayaran tanpa Order',orderNo:x.orderNo,description:'No. Pesanan ada pada file pembayaran (Income) tetapi detail Order belum ada di master.'}));
+    const union=unionRecords(), total=cache.incomes.reduce((s,x)=>s+x.amount,0);
+    const bat=cache.incomes.filter(x=>x.batchId), readyRecs=union.filter(x=>x.status==='ready'), ready=readyRecs.map(x=>x.income).filter(Boolean);
+    const heldRecs=union.filter(x=>x.income && !x.income.batchId && (x.status==='cancelled' || x.status==='incomeOnly')), held=heldRecs.map(x=>x.income);
+    const batTotal=bat.reduce((s,x)=>s+x.amount,0), readyTotal=ready.reduce((s,x)=>s+x.amount,0), heldTotal=held.reduce((s,x)=>s+x.amount,0), diff=total-batTotal-readyTotal-heldTotal;
+    $('reconIncome').textContent=money(total); $('reconIncomeN').textContent=`${cache.incomes.length} pesanan`; $('reconBatched').textContent=money(batTotal); $('reconBatchedN').textContent=`${bat.length} pesanan`; $('reconReady').textContent=money(readyTotal); $('reconReadyN').textContent=`${ready.length} pesanan`; $('reconHeld').textContent=money(heldTotal); $('reconHeldN').textContent=`${held.length} pesanan`;
+    setMessage('reconMessage',diff===0?'Rekonsiliasi seimbang. Semua Pembayaran terbagi menjadi Sudah Dicairkan, Siap Dicairkan, atau Ditahan untuk diperiksa.':`Ada selisih ${money(diff)} yang belum terklasifikasi. Data perlu diperiksa.`,diff===0?'success':'error');
+    const rows=[...cache.anomalies];
+    union.filter(x=>x.status==='incomeOnly').forEach(x=>rows.push({type:'Pembayaran tanpa Order',orderNo:x.orderNo,description:'No. Pesanan ada pada file Income tetapi detail Order belum ada di master. Pembayaran ditahan dari Batch otomatis.'}));
+    union.filter(x=>x.status==='cancelled' && x.income).forEach(x=>rows.push({type:'Pesanan Batal memiliki Pembayaran',orderNo:x.orderNo,description:x.income.batchId?`Pesanan berstatus Batal tetapi sudah masuk ${x.income.batchId}. Periksa riwayat dan alasan pembatalan.`:`Pesanan berstatus Batal tetapi memiliki Pembayaran ${money(x.amount)}. Pembayaran ditahan dan tidak masuk Siap Dicairkan.`}));
     $('anomalyBody').innerHTML=rows.length?rows.sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))).map(x=>`<tr><td>${esc(x.type)}</td><td>${esc(x.orderNo||'-')}</td><td>${esc(x.description||'-')}</td></tr>`).join(''):'<tr><td colspan="3" class="muted">Tidak ada anomali yang perlu diperiksa.</td></tr>';
   }
-
   function renderEditHistory(){ const body=$('editHistoryBody'); if(!body)return; body.innerHTML=cache.edits.length?cache.edits.slice(0,100).map(x=>`<tr><td>${esc(localDateTime(x.createdAt))}</td><td>${esc(x.orderNoBefore||'-')}</td><td>${esc(x.orderNoAfter||'-')}</td><td>${esc(x.description||'-')}</td></tr>`).join(''):'<tr><td colspan="4" class="muted">Belum ada edit manual.</td></tr>'; }
-  function renderAll(){ renderProductChoices('report');renderProductChoices('ready');renderDashboard();renderUploads();renderReport();renderPending();renderReady();renderHistory();renderRecon();renderEditHistory(); $('dbStatus').textContent=`Master: ${orderGroups().size} order · ${cache.incomes.length} pembayaran`; }
+  function renderAll(){ renderProductChoices('report');renderProductChoices('ready');renderReportOrderStatusOptions();renderDashboard();renderUploads();renderReport();renderPending();renderCancelled();renderReady();renderHistory();renderRecon();renderEditHistory(); $('dbStatus').textContent=`Master: ${orderGroups().size} order · ${cache.incomes.length} pembayaran`; }
 
   function exportXlsxReport(){
     if(!window.XLSX){alert('Library Excel belum tersedia.');return;} const rows=currentReport();
     const detail=rows.map(r=>({
       'No. Pesanan':r.orderNo,'Nama Produk':r.lines.map(x=>x.product).join(' | '),'Variasi':r.lines.map(x=>x.variation).join(' | '),'Status':r.orderStatus||'',
-      'Pembayaran':r.income?r.amount:'','Tanggal Order':r.orderDate||'','Tanggal Pembayaran / Dana Dilepas':r.releasedDate||'','Status Pencairan':r.income?.batchId|| (r.status==='ready'?'Belum Dicairkan':r.status==='pending'?'Belum Dibayar Shopee':'')
+      'Pembayaran':r.income?r.amount:'','Tanggal Order':r.orderDate||'','Tanggal Pembayaran / Dana Dilepas':r.releasedDate||'','Status Pencairan':r.income?.batchId|| (r.status==='ready'?'Belum Dicairkan':r.status==='pending'?'Belum Dibayar Shopee':r.status==='cancelled'&&r.income?'Ditahan / Perlu Dicek':r.status==='cancelled'?'Pesanan Batal':r.status==='incomeOnly'?'Ditahan / Pembayaran tanpa Order':'')
     }));
     const wb=XLSX.utils.book_new(), ws=XLSX.utils.json_to_sheet(detail); XLSX.utils.book_append_sheet(wb,ws,'Laporan'); const sum=XLSX.utils.aoa_to_sheet([['Jumlah Pesanan',rows.length],['Total Penghasilan',rows.reduce((s,x)=>s+x.amount,0)]]); XLSX.utils.book_append_sheet(wb,sum,'Ringkasan'); XLSX.writeFile(wb,`Laporan_Pembayaran_Pencairan_${todayISO()}.xlsx`);
   }
@@ -591,7 +667,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     $('dialogTitle').textContent='Hapus Semua Data Firebase'; $('dialogContent').innerHTML='<p>Semua Order Master, Pembayaran Master, Batch Pencairan, riwayat upload, log edit, dan anomali pada Firestore akan dihapus. Tindakan ini tidak dapat dibatalkan kecuali Anda punya backup JSON.</p>'; const dlg=$('confirmDialog');dlg.showModal();const result=await new Promise(resolve=>{const fn=()=>{dlg.removeEventListener('close',fn);resolve(dlg.returnValue)};dlg.addEventListener('close',fn)});if(result!=='confirm')return;for(const s of Object.values(STORES))await clearStore(s);await reloadCache();renderAll();setMessage('backupMessage','Semua data Firebase sudah dihapus.','warning');
   }
 
-  const viewMeta={dashboard:['Dashboard','Ringkasan Order, Pembayaran Shopee, dan Pencairan.'],upload:['Upload Data','Import snapshot Order dan Income terbaru ke master.'],report:['Laporan Gabungan','Pembayaran dan Pencairan dipisahkan, dengan total mengikuti filter/pencarian.'],pending:['Pending Pembayaran','Order yang belum ditemukan pada file pembayaran (Income).'],ready:['Siap Dicairkan','Pembayaran sudah masuk saldo Shopee tetapi belum masuk Batch Pencairan.'],history:['Riwayat Batch','Audit pencairan dan pembatalan batch.'],recon:['Rekonsiliasi','Pemeriksaan keseimbangan Pembayaran dan Pencairan.'],settings:['Backup & Data','Backup, restore, log edit, dan reset database Firebase.']};
+  const viewMeta={dashboard:['Dashboard','Ringkasan Order, Pembayaran Shopee, dan Pencairan.'],upload:['Upload Data','Import snapshot Order dan Income terbaru ke master.'],report:['Laporan Gabungan','Pembayaran dan Pencairan dipisahkan, dengan total mengikuti filter/pencarian.'],pending:['Pending Pembayaran','Pesanan aktif/non-batal yang belum ditemukan pada file pembayaran (Income).'],cancelled:['Pesanan Batal','Pesanan berstatus Batal dipisahkan dari Pending Pembayaran dan Siap Dicairkan.'],ready:['Siap Dicairkan','Pembayaran sudah masuk saldo Shopee tetapi belum masuk Batch Pencairan.'],history:['Riwayat Batch','Audit pencairan dan pembatalan batch.'],recon:['Rekonsiliasi','Pemeriksaan keseimbangan Pembayaran dan Pencairan.'],settings:['Backup & Data','Backup, restore, log edit, dan reset database Firebase.']};
   function switchView(name){ $$('.view').forEach(v=>v.classList.toggle('active',v.id===`view-${name}`)); $$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===name)); $('pageTitle').textContent=viewMeta[name][0]; $('pageSubtitle').textContent=viewMeta[name][1]; window.scrollTo({top:0,behavior:'smooth'}); }
 
   function bind(){
@@ -603,12 +679,19 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     on('clearFilesBtn','click',()=>{ if($('orderFile')) $('orderFile').value=''; if($('incomeFile')) $('incomeFile').value=''; if($('orderFileName')) $('orderFileName').textContent='Belum dipilih'; if($('incomeFileName')) $('incomeFileName').textContent='Belum dipilih'; setMessage('importMessage','Pilihan file dikosongkan.','info'); });
     on('importBtn','click',importFiles);
 
-    ['reportReleaseFrom','reportReleaseTo','reportOrderFrom','reportOrderTo','reportPaymentStatus','reportPayoutStatus'].forEach(id=>on(id,'change',renderReport));
+    ['reportReleaseFrom','reportReleaseTo','reportOrderFrom','reportOrderTo','reportPaymentStatus','reportPayoutStatus','reportOrderStatus'].forEach(id=>on(id,'change',renderReport));
     on('reportSearch','input',renderReport);
     on('reportProductAll','click',()=>selectAllProducts('report'));
     on('reportProductNone','click',()=>clearAllProducts('report'));
     on('exportReportBtn','click',exportXlsxReport);
 
+
+    ['pendingFrom','pendingTo','pendingStatus'].forEach(id=>on(id,'change',renderPending));
+    on('pendingSearch','input',renderPending);
+    on('resetPendingFilter','click',()=>{ $('pendingFrom').value=''; $('pendingTo').value=''; $('pendingStatus').value='all'; $('pendingSearch').value=''; renderPending(); });
+    ['cancelledFrom','cancelledTo','cancelledPayment'].forEach(id=>on(id,'change',renderCancelled));
+    on('cancelledSearch','input',renderCancelled);
+    on('resetCancelledFilter','click',()=>{ $('cancelledFrom').value=''; $('cancelledTo').value=''; $('cancelledPayment').value='all'; $('cancelledSearch').value=''; renderCancelled(); });
     ['readyFrom','readyTo'].forEach(id=>on(id,'change',renderReady));
     on('readySearch','input',renderReady);
     on('readyProductAll','click',()=>selectAllProducts('ready'));
