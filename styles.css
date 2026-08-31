@@ -467,7 +467,7 @@
 @media(max-width:760px){.pending-product-line .line-estimate{margin-left:0;width:max-content}}
 .correction-batch-row{background:#fffaf0}.batch-total-row{background:#f3f7ff}.batch-total-row td{font-size:14px}
 
-/* v1.12.0 — import HTML Pending Shopee */
+/* v1.13.0 — import HTML Pending Shopee */
 .pending-html-import{margin:0 0 16px;padding:15px;border:1px solid #cbd8ef;border-radius:16px;background:#f8fbff;display:grid;gap:12px}
 .pending-html-import-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
 .pending-html-import-head>div:first-child{display:grid;gap:4px;min-width:0}
@@ -489,4 +489,19 @@
   .pending-html-import-actions{display:grid;grid-template-columns:1fr 1fr;width:100%}
   .pending-html-import-actions .btn{width:100%;min-height:42px}
   .pending-html-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
+
+/* v1.13.0 - Estimasi vs Final di Siap Dicairkan */
+.ready-batch-summary>div{min-width:150px}
+.ready-batch-summary .btn{margin-left:auto}
+.ready-table{min-width:1220px}
+.ready-estimate-cell .estimate-source{margin-top:4px}
+.final-source{display:inline-block;margin-top:3px;color:#64748b;font-size:10px;font-weight:800;white-space:nowrap}
+#readyEstimateDiff.diff-plus{color:#087a48}
+#readyEstimateDiff.diff-minus{color:#b32626}
+@media(max-width:760px){
+  .ready-batch-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .ready-batch-summary>div{min-width:0}
+  .ready-batch-summary .btn{grid-column:1/-1;width:100%;margin-left:0}
 }

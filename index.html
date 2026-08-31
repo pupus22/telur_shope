@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#2563eb">
   <title>Order, Pembayaran & Pencairan Shopee</title>
-  <link rel="stylesheet" href="styles.css?v=1.12.0">
+  <link rel="stylesheet" href="styles.css?v=1.13.0">
 </head>
 <body>
   <div id="authGate" class="auth-gate">
@@ -45,7 +45,7 @@
       </nav>
       <div class="sidebar-footer">
         <div class="sidebar-note">
-          <strong>Firebase v1.12.0</strong>
+          <strong>Firebase v1.13.0</strong>
           <span>Master tersimpan online di Cloud Firestore.</span>
         </div>
         <div class="sidebar-account">
@@ -272,13 +272,17 @@
             </div>
             <div id="readyProductChoices" class="product-check-grid"></div>
           </div>
-          <div class="batch-summary">
+          <div class="batch-summary ready-batch-summary">
             <div><span>Pesanan siap batch</span><strong id="readyCount">0</strong></div>
-            <div><span>Nominal siap batch</span><strong id="readyAmount">Rp0</strong></div>
+            <div><span>Total Estimasi</span><strong id="readyEstimateAmount">Rp0</strong></div>
+            <div><span>Final Shopee</span><strong id="readyAmount">Rp0</strong></div>
+            <div><span>Selisih Final − Estimasi</span><strong id="readyEstimateDiff">Rp0</strong></div>
             <button id="createBatchBtn" class="btn success">Buat Batch Pencairan</button>
           </div>
-          <div id="readySearchNote" class="message info">Hasil filter: 0 pesanan siap dicairkan.</div><div id="productFilterWarning" class="message warning" style="display:none"></div><div id="batchMessage" class="message info">Batch dibuat berdasarkan semua hasil filter yang sedang tampil. Setelah dibuat, setiap No. Pesanan akan diberi tanda Batch.</div>
-          <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Tanggal Order</th><th>Tanggal Dana Dilepas</th><th class="num">Pembayaran Shopee</th><th>Status Pencairan</th><th>Aksi</th></tr></thead><tbody id="readyBody"></tbody></table></div>
+          <div id="readySearchNote" class="message info">Hasil filter: 0 pesanan siap dicairkan.</div>
+          <div id="readyEstimateNote" class="message info">Estimasi hanya acuan/informasi. Jika Income final sudah tersedia, Batch Pencairan pada halaman ini tetap memakai Pembayaran Final Shopee. Order yang sudah dicairkan melalui Batch Estimasi tidak dicairkan ulang; hanya selisihnya yang masuk saldo koreksi.</div>
+          <div id="productFilterWarning" class="message warning" style="display:none"></div><div id="batchMessage" class="message info">Batch dibuat berdasarkan semua hasil filter yang sedang tampil. Setelah dibuat, setiap No. Pesanan akan diberi tanda Batch.</div>
+          <div class="table-wrap large"><table class="ready-table"><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Tanggal Order</th><th>Tanggal Dana Dilepas</th><th class="num">Estimasi</th><th class="num">Pembayaran Shopee</th><th class="num">Selisih</th><th>Status Pencairan</th><th>Aksi</th></tr></thead><tbody id="readyBody"></tbody></table></div>
         </article>
       </section>
 
@@ -404,6 +408,6 @@
 
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script>if(!window.XLSX){document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\\/script>')}</script>
-  <script type="module" src="app.js?v=1.12.0"></script>
+  <script type="module" src="app.js?v=1.13.0"></script>
 </body>
 </html>

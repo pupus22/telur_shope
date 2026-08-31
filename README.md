@@ -1,6 +1,6 @@
-# Shopee Payout v1.12.0
+# Shopee Payout v1.13.0
 
-## Tambahan v1.12.0
+## Tambahan v1.13.0
 - Import HTML dari Shopee Seller Centre **Penghasilan Saya → Pending**.
 - Parser lokal mengambil No. Pesanan, Dana Akan Dilepaskan, status, metode pembayaran, dan perkiraan pelepasan dana.
 - No. Pesanan dicocokkan ke Master Order; HTML mentah tidak disimpan ke Firebase.
@@ -55,3 +55,12 @@ Upload ulang file Order + Income terbaru sekali. Ini diperlukan agar data Income
 ## Deploy GitHub Pages
 
 Replace `index.html`, `app.js`, dan `styles.css` sekaligus. Tunggu GitHub Pages selesai deploy, lalu lakukan hard refresh (`Ctrl+F5`) pada desktop atau reload halaman pada ponsel.
+
+
+## v1.13.0
+- Halaman **Siap Dicairkan** menampilkan Estimasi, Pembayaran Final Shopee, dan Selisih Final − Estimasi per No. Pesanan.
+- Ringkasan menampilkan Total Estimasi, Final Shopee, dan Selisih pada hasil filter.
+- Sumber estimasi tetap diberi label **HTML Shopee** atau **Manual**.
+- Estimasi hanya informasi/acuan; Batch Final tetap memakai Income final Shopee.
+- Pengaman anti-double-payout: order yang sudah masuk Batch Estimasi tidak ikut Batch Final lagi ketika Income masuk. Selisihnya diselesaikan melalui saldo koreksi batch berikutnya.
+- Snapshot Batch Final menyimpan estimasi dan selisih sebagai audit.
