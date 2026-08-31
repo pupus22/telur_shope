@@ -27,7 +27,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
 
   const $ = (id) => document.getElementById(id);
   const $$ = (sel) => [...document.querySelectorAll(sel)];
-  const APP_VERSION = '1.11.0';
+  const APP_VERSION = '1.12.0';
   function on(id, event, handler){
     const el = $(id);
     if(!el){ console.warn(`[${APP_VERSION}] Elemen #${id} tidak ditemukan.`); return false; }
@@ -75,7 +75,14 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
       estimateBatchId:first.estimateBatchId||null,
       estimatePaidAmount:Number(first.estimatePaidAmount)||0,
       estimatePaidAt:first.estimatePaidAt||null,
+      estimatePaidSource:first.estimatePaidSource||null,
       correctionSettledBatchId:first.correctionSettledBatchId||null,
+      shopeePendingAmount:Number(first.shopeePendingAmount)||0,
+      shopeePendingStatus:first.shopeePendingStatus||'',
+      shopeePendingReleaseEstimate:first.shopeePendingReleaseEstimate||'',
+      shopeePendingPaymentMethod:first.shopeePendingPaymentMethod||'',
+      shopeePendingImportedAt:first.shopeePendingImportedAt||null,
+      shopeePendingSourceFile:first.shopeePendingSourceFile||'',
       items:lines.map(x=>({
         lineKey:x.lineKey||'', product:x.product||'', variation:x.variation||'', skuRef:x.skuRef||'',
         quantity:Number(x.quantity)||0, productCount:Number(x.productCount)||0, subtotal:Number(x.subtotal)||0,
@@ -94,7 +101,14 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
       quantity:Number(item.quantity)||0, productCount:Number(item.productCount)||0, subtotal:Number(item.subtotal)||0,
       estimateUnit:Number(item.estimateUnit)||0, estimateSubtotal:Number(item.estimateSubtotal)||0, estimateUpdatedAt:item.estimateUpdatedAt||null,
       estimateBatchId:data.estimateBatchId||null, estimatePaidAmount:Number(data.estimatePaidAmount)||0, estimatePaidAt:data.estimatePaidAt||null,
+      estimatePaidSource:data.estimatePaidSource||null,
       correctionSettledBatchId:data.correctionSettledBatchId||null,
+      shopeePendingAmount:Number(data.shopeePendingAmount)||0,
+      shopeePendingStatus:data.shopeePendingStatus||'',
+      shopeePendingReleaseEstimate:data.shopeePendingReleaseEstimate||'',
+      shopeePendingPaymentMethod:data.shopeePendingPaymentMethod||'',
+      shopeePendingImportedAt:data.shopeePendingImportedAt||null,
+      shopeePendingSourceFile:data.shopeePendingSourceFile||'',
       lastImportedAt:item.lastImportedAt||data.lastImportedAt||null, lastManualEditAt:item.lastManualEditAt||data.lastManualEditAt||null
     }));
   }
@@ -176,13 +190,19 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
       else if(!inc) status='pending';
       else if(inc.batchId) status='batched';
       else status='ready';
-      const estimateTotal=lines.reduce((sum,line)=>sum+(Number(line.estimateSubtotal)||0),0);
-      const estimateComplete=!!lines.length && lines.every(line=>(Number(line.estimateSubtotal)||0)>0);
+      const manualEstimateTotal=lines.reduce((sum,line)=>sum+(Number(line.estimateSubtotal)||0),0);
+      const manualEstimateComplete=!!lines.length && lines.every(line=>(Number(line.estimateSubtotal)||0)>0);
+      const shopeePendingAmount=Number(first.shopeePendingAmount)||0;
+      const hasShopeePending=!!first.shopeePendingImportedAt && shopeePendingAmount>0;
+      const estimateTotal=hasShopeePending?shopeePendingAmount:manualEstimateTotal;
+      const estimateComplete=hasShopeePending || manualEstimateComplete;
+      const estimateSource=hasShopeePending?'shopeeHtml':(manualEstimateTotal>0?'manual':null);
       const estimateBatchId=first.estimateBatchId||null;
       const estimatePaidAmount=Number(first.estimatePaidAmount)||0;
+      const estimatePaidSource=first.estimatePaidSource||null;
       const correctionDelta=(inc && estimatePaidAmount)?(Number(inc.amount)||0)-estimatePaidAmount:0;
       const correctionSettledBatchId=first.correctionSettledBatchId||null;
-      return {orderNo,lines,income:inc,status,isCancelled,orderDate:first.orderDate||inc?.orderCreatedDate||'',orderStatus,cancelReason:first.cancelReason||'',releasedDate:inc?.releasedDate||'',amount:inc?.amount||0,estimateTotal,estimateComplete,estimateBatchId,estimatePaidAmount,estimatePaidAt:first.estimatePaidAt||null,correctionDelta,correctionSettledBatchId};
+      return {orderNo,lines,income:inc,status,isCancelled,orderDate:first.orderDate||inc?.orderCreatedDate||'',orderStatus,cancelReason:first.cancelReason||'',releasedDate:inc?.releasedDate||'',amount:inc?.amount||0,manualEstimateTotal,manualEstimateComplete,shopeePendingAmount,shopeePendingStatus:first.shopeePendingStatus||'',shopeePendingReleaseEstimate:first.shopeePendingReleaseEstimate||'',shopeePendingPaymentMethod:first.shopeePendingPaymentMethod||'',shopeePendingImportedAt:first.shopeePendingImportedAt||null,shopeePendingSourceFile:first.shopeePendingSourceFile||'',estimateTotal,estimateComplete,estimateSource,estimateBatchId,estimatePaidAmount,estimatePaidSource,estimatePaidAt:first.estimatePaidAt||null,correctionDelta,correctionSettledBatchId};
     }).sort((a,b)=>(b.releasedDate||b.orderDate).localeCompare(a.releasedDate||a.orderDate)||b.orderNo.localeCompare(a.orderNo));
   }
 
@@ -300,7 +320,14 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
           estimateBatchId:state.estimateBatchId||null,
           estimatePaidAmount:Number(state.estimatePaidAmount)||0,
           estimatePaidAt:state.estimatePaidAt||null,
-          correctionSettledBatchId:state.correctionSettledBatchId||null
+          estimatePaidSource:state.estimatePaidSource||null,
+          correctionSettledBatchId:state.correctionSettledBatchId||null,
+          shopeePendingAmount:Number(state.shopeePendingAmount)||0,
+          shopeePendingStatus:state.shopeePendingStatus||'',
+          shopeePendingReleaseEstimate:state.shopeePendingReleaseEstimate||'',
+          shopeePendingPaymentMethod:state.shopeePendingPaymentMethod||'',
+          shopeePendingImportedAt:state.shopeePendingImportedAt||null,
+          shopeePendingSourceFile:state.shopeePendingSourceFile||''
         };
       });
       const mergedOrderGroups=new Map();
@@ -352,8 +379,9 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
   function estimateIsComplete(lines){ return !!(lines||[]).length && lines.every(line=>(Number(line.estimateSubtotal)||0)>0); }
   function estimateStatusBadge(rec){
     if(rec.estimateBatchId) return `<span class="badge done">Sudah Dicairkan Estimasi · ${esc(rec.estimateBatchId)}</span>`;
-    if(rec.estimateComplete) return '<span class="badge paid">Sudah Diestimasi</span>';
-    if(rec.estimateTotal>0) return '<span class="badge review">Estimasi Belum Lengkap</span>';
+    if(rec.estimateSource==='shopeeHtml') return `<span class="badge paid">HTML Shopee</span>${rec.shopeePendingStatus?`<br><span class="muted">${esc(rec.shopeePendingStatus)}</span>`:''}`;
+    if(rec.estimateComplete) return '<span class="badge paid">Manual Lengkap</span>';
+    if(rec.estimateTotal>0) return '<span class="badge review">Manual Belum Lengkap</span>';
     return '<span class="badge neutral">Belum Diestimasi</span>';
   }
   function outstandingCorrections(){
@@ -361,6 +389,9 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
   }
   function normalizeProductKey(v){ return normalizeText(v).toLowerCase(); }
   function estimateFinalBreakdown(rec){
+    if(rec.estimatePaidSource==='shopeeHtml'){
+      return [{product:'Total Order · HTML Shopee',estimate:Number(rec.estimatePaidAmount)||0,final:Number(rec.amount)||0,diff:(Number(rec.amount)||0)-(Number(rec.estimatePaidAmount)||0),orderLevel:true}];
+    }
     const est=new Map(), fin=new Map(), labels=new Map();
     for(const line of rec.lines||[]){
       const key=normalizeProductKey(line.product||'-'); labels.set(key,line.product||'-');
@@ -375,7 +406,8 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
   function correctionDetailHtml(rec){
     const details=estimateFinalBreakdown(rec);
     if(!details.length) return '<span class="muted">Rincian SKU final belum tersedia.</span>';
-    return `<div class="correction-product-list">${details.map(x=>`<div><b>${esc(x.product)}</b><span>${money(x.estimate)} → ${money(x.final)}</span><strong class="${x.diff>0?'diff-plus':x.diff<0?'diff-minus':''}">${x.diff>0?'+':''}${money(x.diff)}</strong></div>`).join('')}</div>`;
+    const html=`<div class="correction-product-list">${details.map(x=>`<div><b>${esc(x.product)}</b><span>${money(x.estimate)} → ${money(x.final)}</span><strong class="${x.diff>0?'diff-plus':x.diff<0?'diff-minus':''}">${x.diff>0?'+':''}${money(x.diff)}</strong></div>`).join('')}</div>`;
+    return rec.estimatePaidSource==='shopeeHtml'?html+'<div class="muted correction-note">HTML Pending Shopee menyediakan nominal total per No. Pesanan; pembagian estimasi per produk tidak ditebak.</div>':html;
   }
 
   function productNames(){
@@ -502,6 +534,87 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
   }
 
   function pendingBaseRecords(){ return unionRecords().filter(x=>x.status==='pending'); }
+  function parsePendingShopeeHtml(htmlText){
+    const parser=new DOMParser();
+    const docHtml=parser.parseFromString(String(htmlText||''),'text/html');
+    const bodyText=docHtml.body?.textContent||'';
+    if(!/Dana Akan Dilepaskan/i.test(bodyText) || !/Pending/i.test(bodyText)){
+      throw new Error('File bukan halaman Shopee Penghasilan Saya → Pending, atau data tabel belum ikut tersimpan.');
+    }
+    const rows=[...docHtml.querySelectorAll('.grid-table-body .grid-table-row')];
+    const out=[];
+    for(const row of rows){
+      const orderEl=row.querySelector('.order-id');
+      const amountEl=row.querySelector('.transaction-amount');
+      if(!orderEl||!amountEl) continue;
+      const orderMatch=(orderEl.textContent||'').toUpperCase().match(/\b\d{6}[A-Z0-9]{6,}\b/);
+      if(!orderMatch) continue;
+      const cells=[...row.children];
+      const orderNo=orderMatch[0];
+      const amount=parseMoney(amountEl.textContent||'');
+      const releaseEstimate=normalizeText(cells[1]?.textContent||'');
+      const status=normalizeText(cells[2]?.textContent||'');
+      const paymentMethod=normalizeText(cells[3]?.textContent||'');
+      out.push({orderNo,amount,releaseEstimate,status,paymentMethod});
+    }
+    const byOrder=new Map();
+    for(const r of out) byOrder.set(r.orderNo,r);
+    return [...byOrder.values()];
+  }
+  function resetPendingHtmlSummary(){
+    if($('pendingHtmlRows')) $('pendingHtmlRows').textContent='0';
+    if($('pendingHtmlMatched')) $('pendingHtmlMatched').textContent='0';
+    if($('pendingHtmlUnmatched')) $('pendingHtmlUnmatched').textContent='0';
+    if($('pendingHtmlTotal')) $('pendingHtmlTotal').textContent=money(0);
+  }
+  async function importPendingShopeeHtml(){
+    const file=$('pendingHtmlFile')?.files?.[0];
+    if(!file){setMessage('pendingHtmlMessage','Pilih file HTML Shopee terlebih dahulu.','warning');return;}
+    const btn=$('importPendingHtmlBtn'); if(btn)btn.disabled=true;
+    setMessage('pendingHtmlMessage','Membaca HTML dan mencocokkan No. Pesanan dengan Master Order…','info');
+    try{
+      const htmlText=await file.text();
+      const parsed=parsePendingShopeeHtml(htmlText);
+      if(!parsed.length) throw new Error('Tidak ditemukan pasangan No. Pesanan + Dana Akan Dilepaskan di HTML ini. Pastikan daftar Pending sudah tampil sebelum Ctrl+S.');
+      const groups=orderGroups();
+      const currentByOrder=new Map(unionRecords().map(r=>[r.orderNo,r]));
+      const now=new Date().toISOString();
+      const updates=[]; const unmatched=[]; const skippedFinal=[];
+      let matched=0, total=0;
+      for(const row of parsed){
+        total+=Number(row.amount)||0;
+        const lines=groups.get(row.orderNo)||[];
+        if(!lines.length){unmatched.push(row.orderNo);continue;}
+        const rec=currentByOrder.get(row.orderNo);
+        if(rec?.income){skippedFinal.push(row.orderNo);continue;}
+        matched++;
+        for(const line of lines){
+          updates.push({...line,
+            shopeePendingAmount:Number(row.amount)||0,
+            shopeePendingStatus:row.status||'',
+            shopeePendingReleaseEstimate:row.releaseEstimate||'',
+            shopeePendingPaymentMethod:row.paymentMethod||'',
+            shopeePendingImportedAt:now,
+            shopeePendingSourceFile:file.name
+          });
+        }
+      }
+      if(updates.length) await putMany(STORES.orders,updates);
+      await putMany(STORES.edits,[{id:uid('EDIT'),createdAt:now,orderNoBefore:'',orderNoAfter:'',description:`Import HTML Pending Shopee ${file.name}: ${parsed.length} baris, ${matched} cocok Master, ${unmatched.length} tidak cocok, ${skippedFinal.length} sudah punya Income final, total HTML ${money(total)}.`}]);
+      await reloadCache(); renderAll();
+      if($('pendingHtmlRows')) $('pendingHtmlRows').textContent=parsed.length;
+      if($('pendingHtmlMatched')) $('pendingHtmlMatched').textContent=matched;
+      if($('pendingHtmlUnmatched')) $('pendingHtmlUnmatched').textContent=unmatched.length;
+      if($('pendingHtmlTotal')) $('pendingHtmlTotal').textContent=money(total);
+      const extra=[];
+      if(unmatched.length) extra.push(`${unmatched.length} No. Pesanan tidak ditemukan di Master`);
+      if(skippedFinal.length) extra.push(`${skippedFinal.length} sudah memiliki Income final dan dilewati`);
+      setMessage('pendingHtmlMessage',`Import selesai: ${matched} pesanan cocok. Total nominal pada HTML ${money(total)}.${extra.length?' '+extra.join(' · ')+'.':''} HTML mentah tidak disimpan; hanya hasil ekstraksi yang masuk Firebase.`,'success');
+    }catch(err){
+      console.error(err); resetPendingHtmlSummary();
+      setMessage('pendingHtmlMessage',err.message||String(err),'error');
+    }finally{if(btn)btn.disabled=!$('pendingHtmlFile')?.files?.[0];}
+  }
   function renderPendingStatusOptions(baseRows){
     const el=$('pendingStatus'); if(!el)return;
     const current=el.value||'all';
@@ -541,7 +654,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     }
     const breakdown=Object.entries(rows.reduce((m,r)=>(m[r.orderStatus||'Tanpa Status']=(m[r.orderStatus||'Tanpa Status']||0)+1,m),{})).sort((a,b)=>a[0].localeCompare(b[0],'id'));
     $('pendingStatusSummary').innerHTML=breakdown.length?breakdown.map(([k,v])=>`<span class="mini-chip"><b>${esc(k)}</b> ${v}</span>`).join(''):'<span class="muted">Tidak ada pending aktif pada filter ini.</span>';
-    $('pendingBody').innerHTML=rows.length?rows.map(r=>`<tr><td><b>${esc(r.orderNo)}</b>${r.lines.length>1?`<br><span class="muted">${r.lines.length} item</span>`:''}</td><td>${estimateProductHtml(r.lines)}</td><td>${esc(r.orderStatus||'-')}</td><td>${esc(r.orderDate||'-')}</td><td class="num"><b>${r.estimateTotal?money(r.estimateTotal):'-'}</b></td><td>${estimateStatusBadge(r)}</td><td><div class="quick-actions"><button class="btn primary small quick-estimate" data-order="${esc(r.orderNo)}">Harga Cepat</button><button class="btn ghost small edit-order-pending" data-order="${esc(r.orderNo)}">Edit</button></div></td></tr>`).join(''):'<tr><td colspan="7" class="muted">Tidak ada pesanan aktif yang menunggu Pembayaran Shopee.</td></tr>';
+    $('pendingBody').innerHTML=rows.length?rows.map(r=>`<tr><td><b>${esc(r.orderNo)}</b>${r.lines.length>1?`<br><span class="muted">${r.lines.length} item</span>`:''}</td><td>${estimateProductHtml(r.lines)}</td><td>${esc(r.orderStatus||'-')}</td><td>${esc(r.orderDate||'-')}</td><td class="num"><b>${r.estimateTotal?money(r.estimateTotal):'-'}</b>${r.estimateSource==='shopeeHtml'?`<br><span class="estimate-source shopee">HTML Shopee</span>${r.shopeePendingPaymentMethod?`<br><span class="muted">${esc(r.shopeePendingPaymentMethod)}</span>`:''}`:r.estimateSource==='manual'?'<br><span class="estimate-source manual">Manual</span>':''}</td><td>${estimateStatusBadge(r)}</td><td><div class="quick-actions"><button class="btn primary small quick-estimate" data-order="${esc(r.orderNo)}">Harga Cepat</button><button class="btn ghost small edit-order-pending" data-order="${esc(r.orderNo)}">Edit</button></div></td></tr>`).join(''):'<tr><td colspan="7" class="muted">Tidak ada pesanan aktif yang menunggu Pembayaran Shopee.</td></tr>';
     $$('.quick-estimate').forEach(b=>b.addEventListener('click',()=>showEstimateOrder(b.dataset.order)));
     $$('.edit-order-pending').forEach(b=>b.addEventListener('click',()=>showEditOrder(b.dataset.order)));
   }
@@ -625,7 +738,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     const productSummary=productSelectionSummary('pending');
     const mixed=rows.filter(r=>productMixInfo(r.lines||[],products).mixed);
     $('dialogTitle').textContent='Konfirmasi Batch Estimasi';
-    $('dialogContent').innerHTML=`<p>Batch ini mencairkan dana <b>sebelum Income final masuk</b>, menggunakan estimasi manual per item. Saat Income final datang, selisih akan dihitung otomatis.</p><div class="dialog-summary"><div><span>ID Batch</span><strong>${esc(batchId)}</strong></div><div><span>Pesanan Estimasi</span><strong>${rows.length}</strong></div><div><span>Dasar Estimasi</span><strong>${money(baseTotal)}</strong></div><div><span>Koreksi Sebelumnya</span><strong>${correctionTotal>0?'+':''}${money(correctionTotal)}</strong></div><div><span>Total Pencairan</span><strong>${money(payoutTotal)}</strong></div><div><span>Produk</span><strong>${esc(productSummary)}</strong></div></div>${mixed.length?`<div class="message warning">${mixed.length} pesanan mengandung produk terpilih dan produk lain. Karena pencairan dikunci per No. Pesanan, total estimasi seluruh item dalam pesanan tersebut ikut batch.</div>`:''}${corrections.length?`<div class="message info">${corrections.length} selisih order lama ikut diselesaikan pada batch ini dengan nilai net ${correctionTotal>0?'+':''}${money(correctionTotal)}.</div>`:''}`;
+    $('dialogContent').innerHTML=`<p>Batch ini mencairkan dana <b>sebelum Income final masuk</b>, menggunakan estimasi Shopee dari HTML jika tersedia; jika tidak, estimasi manual per item. Saat Income final datang, selisih akan dihitung otomatis.</p><div class="dialog-summary"><div><span>ID Batch</span><strong>${esc(batchId)}</strong></div><div><span>Pesanan Estimasi</span><strong>${rows.length}</strong></div><div><span>Dasar Estimasi</span><strong>${money(baseTotal)}</strong></div><div><span>Koreksi Sebelumnya</span><strong>${correctionTotal>0?'+':''}${money(correctionTotal)}</strong></div><div><span>Total Pencairan</span><strong>${money(payoutTotal)}</strong></div><div><span>Produk</span><strong>${esc(productSummary)}</strong></div></div>${mixed.length?`<div class="message warning">${mixed.length} pesanan mengandung produk terpilih dan produk lain. Karena pencairan dikunci per No. Pesanan, total estimasi seluruh item dalam pesanan tersebut ikut batch.</div>`:''}${corrections.length?`<div class="message info">${corrections.length} selisih order lama ikut diselesaikan pada batch ini dengan nilai net ${correctionTotal>0?'+':''}${money(correctionTotal)}.</div>`:''}`;
     const dlg=$('confirmDialog'); dlg.showModal();
     const result=await new Promise(resolve=>{const fn=()=>{dlg.removeEventListener('close',fn);resolve(dlg.returnValue)};dlg.addEventListener('close',fn)}); if(result!=='confirm')return;
     if(rows.length>250){setMessage('pendingEstimateNote','Batch estimasi terlalu besar. Persempit filter menjadi maksimal 250 pesanan per batch.','warning');return;}
@@ -633,7 +746,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     const batch={
       batchId,createdAt,status:'active',type:'estimate',count:rows.length,totalSnapshot:payoutTotal,baseEstimateTotal:baseTotal,correctionTotal,
       filterSnapshot:{dateBasis:'order',dateFrom:$('pendingFrom').value||'',dateTo:$('pendingTo').value||'',products:products===null?pendingProductNames():[...products],productSummary,search:$('pendingSearch').value.trim()||''},
-      items:rows.map(r=>({orderNo:r.orderNo,amountSnapshot:r.estimateTotal,estimateSnapshot:r.estimateTotal,releasedDate:'',orderDate:r.orderDate,productsSnapshot:r.lines.map(line=>({product:line.product||'',variation:line.variation||'',quantity:Number(line.quantity)||0,estimateUnit:Number(line.estimateUnit)||0,estimateSubtotal:Number(line.estimateSubtotal)||0}))})),
+      items:rows.map(r=>({orderNo:r.orderNo,amountSnapshot:r.estimateTotal,estimateSnapshot:r.estimateTotal,estimateSource:r.estimateSource||'manual',shopeePendingAmount:Number(r.shopeePendingAmount)||0,releasedDate:'',orderDate:r.orderDate,productsSnapshot:r.lines.map(line=>({product:line.product||'',variation:line.variation||'',quantity:Number(line.quantity)||0,estimateUnit:Number(line.estimateUnit)||0,estimateSubtotal:Number(line.estimateSubtotal)||0}))})),
       corrections:corrections.map(r=>({orderNo:r.orderNo,estimatePaidAmount:r.estimatePaidAmount,finalAmount:r.amount,delta:r.correctionDelta}))
     };
     try{
@@ -651,7 +764,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
         correctionSnaps.forEach((snap,i)=>{const d=snap.data()||{};if(!snap.exists()||d.correctionSettledBatchId)conflicts.push(`${corrections[i].orderNo} (koreksi berubah)`);});
         if(conflicts.length) throw new Error(`Batch dibatalkan karena data berubah: ${conflicts.slice(0,6).join(', ')}${conflicts.length>6?'…':''}`);
         tx.set(doc(db,STORES.batches,batchId),batch);
-        orderSnaps.forEach((snap,i)=>tx.update(orderRefs[i],{estimateBatchId:batchId,estimatePaidAmount:rows[i].estimateTotal,estimatePaidAt:createdAt}));
+        orderSnaps.forEach((snap,i)=>tx.update(orderRefs[i],{estimateBatchId:batchId,estimatePaidAmount:rows[i].estimateTotal,estimatePaidSource:rows[i].estimateSource||'manual',estimatePaidAt:createdAt}));
         correctionSnaps.forEach((snap,i)=>tx.update(correctionRefs[i],{correctionSettledBatchId:batchId}));
       });
       await reloadCache(); renderAll();
@@ -723,7 +836,8 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     const itemRows=(b.items||[]).map(x=>{
       const lines=(Array.isArray(x.productsSnapshot)&&x.productsSnapshot.length)?x.productsSnapshot:(groups.get(x.orderNo)||[]);
       const orderDate=x.orderDate || (groups.get(x.orderNo)?.[0]?.orderDate) || '-';
-      return `<tr><td class="batch-order-no"><b>${esc(x.orderNo)}</b>${lines.length>1?`<div class="muted batch-item-count">${lines.length} item dalam 1 pesanan</div>`:''}</td><td>${lines.length?productHtml(lines):'<span class="muted">Detail produk tidak ditemukan di Master Order</span>'}</td><td>${esc(orderDate)}</td><td>${esc(x.releasedDate||'-')}</td><td class="num"><b>${money(x.amountSnapshot)}</b></td></tr>`;
+      const source=x.estimateSource==='shopeeHtml'?'<br><span class="estimate-source shopee">HTML Shopee</span>':x.estimateSource==='manual'?'<br><span class="estimate-source manual">Manual</span>':'';
+      return `<tr><td class="batch-order-no"><b>${esc(x.orderNo)}</b>${lines.length>1?`<div class="muted batch-item-count">${lines.length} item dalam 1 pesanan</div>`:''}</td><td>${lines.length?productHtml(lines):'<span class="muted">Detail produk tidak ditemukan di Master Order</span>'}</td><td>${esc(orderDate)}</td><td>${esc(x.releasedDate||'-')}</td><td class="num"><b>${money(x.amountSnapshot)}</b>${source}</td></tr>`;
     }).join('');
     const correctionRows=(b.corrections||[]).map(c=>`<tr class="correction-batch-row"><td><b>Koreksi · ${esc(c.orderNo)}</b></td><td><span class="muted">Final Shopee ${money(c.finalAmount)} − Estimasi dicairkan ${money(c.estimatePaidAmount)}</span></td><td>-</td><td>-</td><td class="num"><b class="${c.delta>0?'diff-plus':c.delta<0?'diff-minus':''}">${c.delta>0?'+':''}${money(c.delta)}</b></td></tr>`).join('');
     $('detailBatchBody').innerHTML=itemRows+correctionRows+`<tr class="batch-total-row"><td colspan="4"><b>TOTAL BATCH</b></td><td class="num"><b>${money(b.totalSnapshot)}</b></td></tr>`;
@@ -743,7 +857,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     if(b.type==='estimate'){
       for(const orderNo of ids){
         const lines=groups.get(orderNo)||[];
-        if(lines[0]?.estimateBatchId===id) orderUpdates.push(...lines.map(line=>({...line,estimateBatchId:null,estimatePaidAmount:0,estimatePaidAt:null})));
+        if(lines[0]?.estimateBatchId===id) orderUpdates.push(...lines.map(line=>({...line,estimateBatchId:null,estimatePaidAmount:0,estimatePaidSource:null,estimatePaidAt:null})));
       }
     }
     const correctionOrders=new Set((b.corrections||[]).map(x=>x.orderNo));
@@ -802,7 +916,8 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     const locked=!!rec.estimateBatchId;
     $('saveEstimateBtn').disabled=locked;
     $('clearEstimateBtn').disabled=locked;
-    setMessage('estimateMessage',locked?`Estimasi ini sudah dipakai pada ${rec.estimateBatchId}. Nilai dikunci agar snapshot pencairan tidak berubah.`:'Estimasi manual disimpan terpisah dari data asli Shopee dan tidak akan ditimpa upload Excel berikutnya.',locked?'warning':'info');
+    const sourceNote=rec.estimateSource==='shopeeHtml'?`Estimasi Shopee ${money(rec.shopeePendingAmount)} dari HTML menjadi acuan Batch untuk order ini. Input manual di bawah tetap tersimpan sebagai rincian/fallback, tetapi tidak mengganti total HTML Shopee.`:'Estimasi manual disimpan terpisah dari data asli Shopee dan tidak akan ditimpa upload Excel berikutnya.';
+    setMessage('estimateMessage',locked?`Estimasi ini sudah dipakai pada ${rec.estimateBatchId}. Nilai dikunci agar snapshot pencairan tidak berubah.`:sourceNote,locked?'warning':'info');
     recalcEstimateDialog();
     $('estimateDialog').showModal();
   }
@@ -994,6 +1109,14 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
 
     ['pendingFrom','pendingTo','pendingStatus'].forEach(id=>on(id,'change',renderPending));
     on('pendingSearch','input',renderPending);
+    on('pendingHtmlFile','change',()=>{
+      const file=$('pendingHtmlFile')?.files?.[0];
+      if($('pendingHtmlFileName')) $('pendingHtmlFileName').textContent=file?file.name:'Belum ada file HTML dipilih.';
+      if($('importPendingHtmlBtn')) $('importPendingHtmlBtn').disabled=!file;
+      resetPendingHtmlSummary();
+      setMessage('pendingHtmlMessage',file?`File ${file.name} siap dibaca. Klik Import & Cocokkan.`:'No. Pesanan pada HTML akan dicocokkan dengan Master Order. Nominal “Dana Akan Dilepaskan” menjadi estimasi Shopee dan lebih diprioritaskan daripada estimasi manual.','info');
+    });
+    on('importPendingHtmlBtn','click',importPendingShopeeHtml);
     on('pendingProductAll','click',()=>selectAllProducts('pending'));
     on('pendingProductNone','click',()=>clearAllProducts('pending'));
     on('createEstimateBatchBtn','click',makeEstimateBatch);

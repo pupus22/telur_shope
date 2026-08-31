@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#2563eb">
   <title>Order, Pembayaran & Pencairan Shopee</title>
-  <link rel="stylesheet" href="styles.css?v=1.11.0">
+  <link rel="stylesheet" href="styles.css?v=1.12.0">
 </head>
 <body>
   <div id="authGate" class="auth-gate">
@@ -45,7 +45,7 @@
       </nav>
       <div class="sidebar-footer">
         <div class="sidebar-note">
-          <strong>Firebase v1.11.0</strong>
+          <strong>Firebase v1.12.0</strong>
           <span>Master tersimpan online di Cloud Firestore.</span>
         </div>
         <div class="sidebar-account">
@@ -197,6 +197,26 @@
             <label>Status Order<select id="pendingStatus"><option value="all">Semua Status Aktif</option></select></label>
             <label>Cari<input id="pendingSearch" type="search" placeholder="No pesanan / produk / variasi"></label>
             <div class="filter-action"><button id="resetPendingFilter" class="btn ghost">Reset Filter</button></div>
+          </div>
+          <div class="pending-html-import">
+            <div class="pending-html-import-head">
+              <div>
+                <strong>Import Estimasi dari HTML Shopee</strong>
+                <span>Simpan halaman Shopee <b>Penghasilan Saya → Pending</b> sebagai HTML, lalu upload di sini. File diproses lokal di browser; HTML mentah tidak disimpan ke Firebase.</span>
+              </div>
+              <div class="pending-html-import-actions">
+                <label class="btn primary file-btn">Pilih HTML Shopee<input id="pendingHtmlFile" type="file" accept=".html,.htm,text/html"></label>
+                <button id="importPendingHtmlBtn" type="button" class="btn success" disabled>Import &amp; Cocokkan</button>
+              </div>
+            </div>
+            <div class="pending-html-file-row"><span id="pendingHtmlFileName">Belum ada file HTML dipilih.</span></div>
+            <div id="pendingHtmlMessage" class="message info">No. Pesanan pada HTML akan dicocokkan dengan Master Order. Nominal “Dana Akan Dilepaskan” menjadi estimasi Shopee dan lebih diprioritaskan daripada estimasi manual.</div>
+            <div class="summary-strip pending-html-summary">
+              <div><span>Baris HTML</span><strong id="pendingHtmlRows">0</strong></div>
+              <div><span>Cocok Master</span><strong id="pendingHtmlMatched">0</strong></div>
+              <div><span>Tidak Cocok</span><strong id="pendingHtmlUnmatched">0</strong></div>
+              <div><span>Total HTML</span><strong id="pendingHtmlTotal">Rp0</strong></div>
+            </div>
           </div>
           <div class="product-picker" id="pendingProductBox">
             <div class="product-picker-head">
@@ -384,6 +404,6 @@
 
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script>if(!window.XLSX){document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\\/script>')}</script>
-  <script type="module" src="app.js?v=1.11.0"></script>
+  <script type="module" src="app.js?v=1.12.0"></script>
 </body>
 </html>

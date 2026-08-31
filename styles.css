@@ -466,3 +466,27 @@
 .pending-product-line{align-items:center}.line-estimate{margin-left:auto;font-size:11px;font-weight:700;color:#7a8495;background:#f1f3f7;border-radius:999px;padding:3px 7px;white-space:nowrap}.line-estimate.has-estimate{color:#0b6d42;background:#eaf8f1}
 @media(max-width:760px){.pending-product-line .line-estimate{margin-left:0;width:max-content}}
 .correction-batch-row{background:#fffaf0}.batch-total-row{background:#f3f7ff}.batch-total-row td{font-size:14px}
+
+/* v1.12.0 — import HTML Pending Shopee */
+.pending-html-import{margin:0 0 16px;padding:15px;border:1px solid #cbd8ef;border-radius:16px;background:#f8fbff;display:grid;gap:12px}
+.pending-html-import-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.pending-html-import-head>div:first-child{display:grid;gap:4px;min-width:0}
+.pending-html-import-head strong{font-size:15px;color:#172033}
+.pending-html-import-head span{font-size:12px;line-height:1.5;color:#64748b}
+.pending-html-import-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.file-btn{position:relative;overflow:hidden;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.file-btn input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.pending-html-file-row{font-size:12px;color:#475569;background:#fff;border:1px dashed #cbd5e1;border-radius:10px;padding:9px 11px}
+.pending-html-summary{margin-top:0}
+.estimate-source{display:inline-block;margin-top:3px;padding:2px 7px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.02em;white-space:nowrap}
+.estimate-source.shopee{background:#fff0ea;color:#c2410c;border:1px solid #fed7c5}
+.estimate-source.manual{background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe}
+.correction-note{margin-top:6px;font-size:11px;line-height:1.4}
+
+@media(max-width:760px){
+  .pending-html-import{padding:12px;border-radius:14px}
+  .pending-html-import-head{display:grid;gap:10px}
+  .pending-html-import-actions{display:grid;grid-template-columns:1fr 1fr;width:100%}
+  .pending-html-import-actions .btn{width:100%;min-height:42px}
+  .pending-html-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+}

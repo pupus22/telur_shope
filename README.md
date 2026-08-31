@@ -1,3 +1,14 @@
+# Shopee Payout v1.12.0
+
+## Tambahan v1.12.0
+- Import HTML dari Shopee Seller Centre **Penghasilan Saya → Pending**.
+- Parser lokal mengambil No. Pesanan, Dana Akan Dilepaskan, status, metode pembayaran, dan perkiraan pelepasan dana.
+- No. Pesanan dicocokkan ke Master Order; HTML mentah tidak disimpan ke Firebase.
+- Nominal HTML Shopee menjadi estimasi utama untuk Batch Estimasi; input manual tetap tersedia sebagai fallback/rincian.
+- Upload Excel berikutnya tetap mempertahankan estimasi HTML yang tersimpan.
+- Saat Income final masuk, koreksi dihitung dari nominal estimasi yang benar-benar sudah dicairkan.
+- Jika estimasi berasal dari HTML, rekonsiliasi tidak mengarang pembagian per produk karena HTML Pending menyediakan total per No. Pesanan.
+
 # Shopee Payout v1.11.0 — Firebase + Estimasi Pending
 
 Versi ini menambahkan alur pencairan lebih awal berdasarkan estimasi manual dari web Shopee, lalu merekonsiliasinya dengan Income final dari Excel Shopee.
