@@ -150,7 +150,13 @@ function estimateForReport(r){return r.activeEstimate||historicalEstimate(r.orde
 function renderReport(){
   const productScope=reportBaseFilteredRecords();renderProductPicker('reportProductPicker',productScope,state.reportProducts,renderReport);
   const rows=filteredReport();$('reportCount').textContent=rows.length;
-  $('reportEstimateTotal').textContent=money(rows.reduce((s,r)=>s+(estimateForReport(r)?.amount||0),0));$('reportFinalTotal').textContent=money(rows.reduce((s,r)=>s+(r.income?.amount||0),0));
+  const activeEstimateTotal=rows.reduce((s,r)=>s+(!r.income?(r.activeEstimate?.amount||0):0),0);
+  const finalTotal=rows.reduce((s,r)=>s+(r.income?.amount||0),0);
+  // Total nilai berjalan: keberadaan Income Excel selalu menang, termasuk bila nominalnya 0/ditahan.
+  const combinedTotal=rows.reduce((s,r)=>s+(r.income?Number(r.income.amount||0):Number(r.activeEstimate?.amount||0)),0);
+  $('reportEstimateTotal').textContent=money(activeEstimateTotal);
+  $('reportFinalTotal').textContent=money(finalTotal);
+  $('reportCombinedTotal').textContent=money(combinedTotal);
   $('reportPaidTotal').textContent=money(rows.reduce((s,r)=>s+(r.paidSnapshot||0),0));$('reportCorrectionTotal').textContent=money(rows.reduce((s,r)=>s+(r.remainingCorrection||0),0));
   $('reportBody').innerHTML=rows.length?rows.map(r=>{
     const est=estimateForReport(r),payout=r.paidBatchId?`${money(r.paidSnapshot)}<br><span class="muted">${esc(r.paidBatchId)}</span>`:'-';

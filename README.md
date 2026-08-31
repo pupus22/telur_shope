@@ -1,4 +1,4 @@
-# Shopee Payout Manager v2.0.2
+# Shopee Payout Manager v2.0.4
 
 # Shopee Payout Manager — v2.0 Clean Rebuild
 
@@ -57,7 +57,7 @@ Lalu tunggu GitHub Pages deploy dan lakukan hard refresh (`Ctrl+F5`).
 - Safe bottom padding mencegah konten tertutup bottom navigation.
 
 
-## v2.0.2 — Filter Produk Laporan Gabungan
+## v2.0.4 — Filter Produk Laporan Gabungan
 
 - Menambahkan filter produk checkbox multi-select pada Laporan Gabungan.
 - Filter produk bersifat exact product.
@@ -65,3 +65,9 @@ Lalu tunggu GitHub Pages deploy dan lakukan hard refresh (`Ctrl+F5`).
 - Daftar produk menyesuaikan filter tanggal, status, dan pencarian yang sedang aktif.
 - Reset Laporan Gabungan juga mengosongkan pilihan produk.
 - Export Excel mengikuti hasil filter produk.
+
+
+## v2.0.4 — Total Gabungan Laporan
+- Menambahkan KPI **Total Final + Estimasi Aktif**.
+- Final Income selalu menang; estimasi hanya dihitung bila order belum mempunyai Income.
+- Ringkasan Estimasi menghitung estimasi aktif saja. Riwayat estimasi tetap terlihat per order di tabel tetapi tidak didouble-count saat Final Income sudah ada.

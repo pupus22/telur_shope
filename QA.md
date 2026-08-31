@@ -29,7 +29,7 @@
 - Semua ID yang direferensikan `app.js` tersedia di `index.html`.
 
 
-## v2.0.2 Filter Produk Laporan Gabungan
+## v2.0.4 Filter Produk Laporan Gabungan
 - [x] reportProductPicker tersedia di DOM.
 - [x] pilihan produk tersimpan di state.reportProducts.
 - [x] matching berdasarkan nama produk exact dari Master Order.
