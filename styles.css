@@ -492,16 +492,26 @@
 }
 
 
-/* v1.13.0 - Estimasi vs Final di Siap Dicairkan */
+/* v1.13.2 - Final Income + Pending Estimasi tampil bersama di Siap Dicairkan */
 .ready-batch-summary>div{min-width:150px}
 .ready-batch-summary .btn{margin-left:auto}
-.ready-table{min-width:1220px}
+.ready-table{min-width:1120px}
 .ready-estimate-cell .estimate-source{margin-top:4px}
 .final-source{display:inline-block;margin-top:3px;color:#64748b;font-size:10px;font-weight:800;white-space:nowrap}
-#readyEstimateDiff.diff-plus{color:#087a48}
-#readyEstimateDiff.diff-minus{color:#b32626}
 @media(max-width:760px){
   .ready-batch-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
   .ready-batch-summary>div{min-width:0}
   .ready-batch-summary .btn{grid-column:1/-1;width:100%;margin-left:0}
 }
+
+/* v1.13.2 — estimasi pending aktif hanya saat Income belum tersedia */
+.ready-estimate-cell .prior-estimate-amount{font-weight:700;color:#64748b}
+.estimate-disabled-note{display:inline-block;margin-top:3px;font-size:10px;font-weight:800;color:#9a6700;background:#fff7df;border:1px solid #f5dda2;border-radius:999px;padding:2px 7px;white-space:nowrap}
+.final-source.final-active{color:#087a48}
+.ready-batch-summary small{display:block;margin-top:3px;color:#64748b;font-size:11px}
+
+/* v1.13.2 */
+.estimate-active-note{display:inline-block;margin-top:3px;font-size:11px;font-weight:700;}
+.ready-estimate-row td{vertical-align:top;}
+.ready-batch-summary{grid-template-columns:repeat(4,minmax(130px,1fr)) auto;}
+@media (max-width:900px){.ready-batch-summary{grid-template-columns:repeat(2,minmax(0,1fr));}.ready-batch-summary .btn{grid-column:1/-1;}}

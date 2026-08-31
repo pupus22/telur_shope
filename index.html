@@ -45,7 +45,7 @@
       </nav>
       <div class="sidebar-footer">
         <div class="sidebar-note">
-          <strong>Firebase v1.13.0</strong>
+          <strong>Firebase v1.13.2</strong>
           <span>Master tersimpan online di Cloud Firestore.</span>
         </div>
         <div class="sidebar-account">
@@ -258,7 +258,7 @@
 
       <section id="view-ready" class="view">
         <article class="card">
-          <div class="card-head"><div><h2>Siap Dicairkan</h2><p>Order dan Income sudah digabung berdasarkan No. Pesanan. Filter periode pada halaman ini selalu berdasarkan <b>Tanggal Order</b>; Tanggal Dana Dilepas tetap ditampilkan sebagai informasi dari Income.</p></div></div>
+          <div class="card-head"><div><h2>Siap Dicairkan</h2><p>Menampilkan dua sumber pencairan: <b>Final Income Shopee</b> jika sudah tersedia, atau <b>Estimasi Pending</b> jika Income belum tersedia. Filter periode selalu berdasarkan <b>Tanggal Order</b>.</p></div></div>
           <div class="filters four">
             <label>Tanggal Order Dari<input id="readyFrom" type="date"></label>
             <label>Tanggal Order Sampai<input id="readyTo" type="date"></label>
@@ -274,15 +274,15 @@
           </div>
           <div class="batch-summary ready-batch-summary">
             <div><span>Pesanan siap batch</span><strong id="readyCount">0</strong></div>
-            <div><span>Total Estimasi</span><strong id="readyEstimateAmount">Rp0</strong></div>
-            <div><span>Final Shopee</span><strong id="readyAmount">Rp0</strong></div>
-            <div><span>Selisih Final − Estimasi</span><strong id="readyEstimateDiff">Rp0</strong></div>
+            <div><span>Total Dasar Aktif</span><strong id="readyAmount">Rp0</strong></div>
+            <div><span>Final Income</span><strong id="readyFinalAmount">Rp0</strong><small id="readyFinalCount">0 pesanan</small></div>
+            <div><span>Estimasi Pending</span><strong id="readyEstimateAmount">Rp0</strong><small id="readyEstimateCount">0 pesanan</small></div>
             <button id="createBatchBtn" class="btn success">Buat Batch Pencairan</button>
           </div>
           <div id="readySearchNote" class="message info">Hasil filter: 0 pesanan siap dicairkan.</div>
-          <div id="readyEstimateNote" class="message info">Estimasi hanya acuan/informasi. Jika Income final sudah tersedia, Batch Pencairan pada halaman ini tetap memakai Pembayaran Final Shopee. Order yang sudah dicairkan melalui Batch Estimasi tidak dicairkan ulang; hanya selisihnya yang masuk saldo koreksi.</div>
+          <div id="readyEstimateNote" class="message info">Jika Income Excel sudah tersedia, Final Income selalu menang. Jika Income belum tersedia tetapi estimasi sudah lengkap, estimasi boleh dicairkan lebih awal dan nanti direkonsiliasi saat Income masuk.</div>
           <div id="productFilterWarning" class="message warning" style="display:none"></div><div id="batchMessage" class="message info">Batch dibuat berdasarkan semua hasil filter yang sedang tampil. Setelah dibuat, setiap No. Pesanan akan diberi tanda Batch.</div>
-          <div class="table-wrap large"><table class="ready-table"><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Tanggal Order</th><th>Tanggal Dana Dilepas</th><th class="num">Estimasi</th><th class="num">Pembayaran Shopee</th><th class="num">Selisih</th><th>Status Pencairan</th><th>Aksi</th></tr></thead><tbody id="readyBody"></tbody></table></div>
+          <div class="table-wrap large"><table class="ready-table"><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Tanggal Order</th><th>Tanggal Dana Dilepas</th><th class="num">Pembayaran Shopee · Final</th><th class="num">Estimasi Pending / Referensi</th><th>Status Pencairan</th><th>Aksi</th></tr></thead><tbody id="readyBody"></tbody></table></div>
         </article>
       </section>
 

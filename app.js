@@ -27,7 +27,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
 
   const $ = (id) => document.getElementById(id);
   const $$ = (sel) => [...document.querySelectorAll(sel)];
-  const APP_VERSION = '1.13.0';
+  const APP_VERSION = '1.13.2';
   function on(id, event, handler){
     const el = $(id);
     if(!el){ console.warn(`[${APP_VERSION}] Elemen #${id} tidak ditemukan.`); return false; }
@@ -681,69 +681,81 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     const lines=groups.get(income.orderNo)||[];
     return lines[0]?.orderDate||income.orderCreatedDate||'';
   }
+  function readyActiveBasis(rec){
+    if(rec.income) return {kind:'final',amount:Number(rec.amount)||0,label:'Final Income'};
+    return {kind:'estimate',amount:Number(rec.estimateTotal)||0,label:rec.estimateSource==='shopeeHtml'?'Estimasi HTML Shopee':'Estimasi Manual'};
+  }
   function currentReady(){
     const groups=orderGroups(), from=$('readyFrom').value,to=$('readyTo').value,products=productSelection('ready'),q=$('readySearch').value.trim().toLowerCase();
-    return unionRecords().filter(r=>r.status==='ready' && !r.estimateBatchId).filter(r=>{
+    // Siap Dicairkan mencakup dua sumber:
+    // 1) Income final yang belum pernah dicairkan; 2) Pending dengan estimasi lengkap yang belum dicairkan.
+    // Bila Income sudah ada, Final Income selalu menang dan estimasi hanya menjadi referensi lama.
+    return unionRecords().filter(r=>{
+      if(r.estimateBatchId) return false;
+      if(r.status==='ready' && r.income) return true;
+      return r.status==='pending' && !r.income && r.estimateComplete && (Number(r.estimateTotal)||0)>0;
+    }).filter(r=>{
       const lines=r.lines||[], d=r.orderDate||r.income?.orderCreatedDate||'';
       if(from && (!d||d<from)) return false;
       if(to && (!d||d>to)) return false;
       if(!productLinesMatchSelection(lines,products)) return false;
       if(q){
-        const hay=[r.orderNo,...lines.flatMap(line=>[line.product,line.variation,line.status]),d,r.releasedDate].join(' ').toLowerCase();
+        const hay=[r.orderNo,...lines.flatMap(line=>[line.product,line.variation,line.status]),d,r.releasedDate,r.shopeePendingPaymentMethod].join(' ').toLowerCase();
         if(!hay.includes(q)) return false;
       }
       return true;
     }).sort((a,b)=>{
-      const da=readyOrderDate(a,groups)||'', db=readyOrderDate(b,groups)||'';
+      const da=a.orderDate||a.income?.orderCreatedDate||'', db=b.orderDate||b.income?.orderCreatedDate||'';
       return db.localeCompare(da)||b.orderNo.localeCompare(a.orderNo);
     });
   }
   function renderReady(){
-    const rows=currentReady(), groups=orderGroups(), total=rows.reduce((s,x)=>s+x.amount,0);
+    const rows=currentReady(), groups=orderGroups();
     const basisLabel='Tanggal Order';
     const selection=productSelection('ready');
     const selectedSummary=productSelectionSummary('ready');
     const mixed=rows.filter(x=>productMixInfo(groups.get(x.orderNo)||[],selection).mixed);
-    const rowsWithEstimate=rows.filter(r=>(Number(r.estimateTotal)||0)>0);
-    const estimateTotal=rowsWithEstimate.reduce((s,r)=>s+(Number(r.estimateTotal)||0),0);
-    const estimateFinalTotal=rowsWithEstimate.reduce((s,r)=>s+(Number(r.amount)||0),0);
-    const estimateDiff=estimateFinalTotal-estimateTotal;
+    const finalRows=rows.filter(r=>!!r.income);
+    const estimateRows=rows.filter(r=>!r.income);
+    const finalTotal=finalRows.reduce((s,r)=>s+(Number(r.amount)||0),0);
+    const estimateTotal=estimateRows.reduce((s,r)=>s+(Number(r.estimateTotal)||0),0);
+    const activeTotal=finalTotal+estimateTotal;
+    const finalWithOldEstimate=finalRows.filter(r=>(Number(r.estimateTotal)||0)>0);
+    const oldEstimateTotal=finalWithOldEstimate.reduce((s,r)=>s+(Number(r.estimateTotal)||0),0);
     $('readyCount').textContent=rows.length;
-    $('readyAmount').textContent=money(total);
+    $('readyAmount').textContent=money(activeTotal);
+    if($('readyFinalAmount')) $('readyFinalAmount').textContent=money(finalTotal);
+    if($('readyFinalCount')) $('readyFinalCount').textContent=`${finalRows.length} pesanan`;
     if($('readyEstimateAmount')) $('readyEstimateAmount').textContent=money(estimateTotal);
-    if($('readyEstimateDiff')){
-      $('readyEstimateDiff').textContent=`${estimateDiff>0?'+':''}${money(estimateDiff)}`;
-      $('readyEstimateDiff').classList.toggle('diff-plus',estimateDiff>0);
-      $('readyEstimateDiff').classList.toggle('diff-minus',estimateDiff<0);
-    }
+    if($('readyEstimateCount')) $('readyEstimateCount').textContent=`${estimateRows.length} pesanan`;
     $('createBatchBtn').disabled=!rows.length;
-    setMessage('readySearchNote',`${rows.length} No. Pesanan siap dicairkan · Final Shopee ${money(total)} · ${rowsWithEstimate.length} pesanan memiliki estimasi ${money(estimateTotal)} · Acuan tanggal: ${basisLabel} · Produk: ${selectedSummary}.`,'info');
+    setMessage('readySearchNote',`${rows.length} No. Pesanan siap dicairkan · dasar aktif ${money(activeTotal)} = Final Income ${money(finalTotal)} + Pending Estimasi ${money(estimateTotal)} · Acuan tanggal: ${basisLabel} · Produk: ${selectedSummary}.`,'info');
     if($('readyEstimateNote')){
-      const missing=rows.length-rowsWithEstimate.length;
-      const diffText=rowsWithEstimate.length?` Untuk ${rowsWithEstimate.length} pesanan yang punya estimasi, Final − Estimasi = ${estimateDiff>0?'+':''}${money(estimateDiff)}.`:'';
-      setMessage('readyEstimateNote',`Estimasi hanya acuan/informasi dan diberi label sumber HTML Shopee atau Manual. Batch pada halaman ini tetap memakai Pembayaran Final Shopee.${diffText}${missing?` ${missing} pesanan belum memiliki estimasi.`:''} Order yang sudah dicairkan lewat Batch Estimasi tidak ditampilkan sebagai siap cair lagi; selisih finalnya otomatis menjadi saldo koreksi.`,'info');
+      const history=finalWithOldEstimate.length?` ${finalWithOldEstimate.length} order final masih memiliki estimasi lama ${money(oldEstimateTotal)} sebagai riwayat; estimasi lama tersebut tidak dipakai.`:'';
+      setMessage('readyEstimateNote',`Prioritas nominal: jika Income Excel sudah ada, gunakan Final Income. Jika Income belum ada tetapi estimasi HTML/manual lengkap, estimasi boleh menjadi dasar pencairan awal.${history} Jika order estimasi sudah dicairkan lalu Income masuk belakangan, hanya selisihnya yang menjadi koreksi batch berikutnya.`,'info');
     }
     const correctionNet=outstandingCorrections().reduce((s,r)=>s+r.correctionDelta,0);
-    if($('batchMessage')) setMessage('batchMessage',`Nominal final pesanan ${money(total)}${correctionNet?` · saldo koreksi ${correctionNet>0?'+':''}${money(correctionNet)} · total batch jika dibuat ${money(total+correctionNet)}`:' · tidak ada saldo koreksi estimasi yang belum dipakai.'}`,correctionNet?'warning':'info');
+    if($('batchMessage')) setMessage('batchMessage',`Nominal aktif ${money(activeTotal)}${correctionNet?` · saldo koreksi lama ${correctionNet>0?'+':''}${money(correctionNet)} · total batch jika dibuat ${money(activeTotal+correctionNet)}`:' · tidak ada saldo koreksi dari Batch Estimasi lama.'}`,correctionNet?'warning':'info');
     const warning=$('productFilterWarning');
     if(selection!==null && selection.size && mixed.length){
       warning.style.display='block';
-      warning.textContent=`Perhatian: ${mixed.length} pesanan berisi produk yang Anda centang sekaligus produk lain dalam No. Pesanan yang sama. Karena Income hanya satu nominal per No. Pesanan, seluruh nominal pesanan tersebut ikut batch.`;
+      warning.textContent=`Perhatian: ${mixed.length} pesanan berisi produk yang Anda centang sekaligus produk lain dalam No. Pesanan yang sama. Seluruh nominal aktif No. Pesanan tersebut ikut batch.`;
     }else if(selection!==null && !selection.size){
       warning.style.display='block'; warning.textContent='Belum ada produk yang dicentang. Pilih minimal satu produk atau tekan “Pilih Semua”.';
     }else{ warning.style.display='none'; warning.textContent=''; }
     $('readyBody').innerHTML=rows.length?rows.map(r=>{
       const lines=groups.get(r.orderNo)||[], mix=productMixInfo(lines,selection);
       const estimate=Number(r.estimateTotal)||0;
-      const diff=estimate?(Number(r.amount)||0)-estimate:0;
-      const source=r.estimateSource==='shopeeHtml'?'<br><span class="estimate-source shopee">HTML Shopee</span>':r.estimateSource==='manual'?'<br><span class="estimate-source manual">Manual</span>':'';
-      const estimateHtml=estimate?`<b>${money(estimate)}</b>${source}`:'<span class="muted">-</span>';
-      const diffHtml=estimate?`<b class="${diff>0?'diff-plus':diff<0?'diff-minus':''}">${diff>0?'+':''}${money(diff)}</b>`:'<span class="muted">-</span>';
-      return `<tr><td><b>${esc(r.orderNo)}</b>${mix.mixed?'<br><span class="badge pending">Pesanan campuran</span>':''}</td><td>${productHtml(lines)}</td><td>${esc(readyOrderDate(r,groups)||'-')}</td><td>${esc(r.releasedDate||'-')}</td><td class="num ready-estimate-cell">${estimateHtml}</td><td class="num"><b>${money(r.amount)}</b><br><span class="final-source">Final Income</span></td><td class="num">${diffHtml}</td><td><span class="badge ready">Belum Dicairkan</span></td><td><button class="btn ghost edit-order-ready" data-order="${esc(r.orderNo)}">Edit</button></td></tr>`;
-    }).join(''):'<tr><td colspan="9" class="muted">Tidak ada pembayaran yang siap dicairkan pada filter ini.</td></tr>';
+      const source=r.estimateSource==='shopeeHtml'?'<span class="estimate-source shopee">HTML Shopee</span>':r.estimateSource==='manual'?'<span class="estimate-source manual">Manual</span>':'';
+      if(r.income){
+        const oldEstimateHtml=estimate?`<span class="prior-estimate-amount">${money(estimate)}</span>${source?`<br>${source}`:''}<br><span class="estimate-disabled-note">Referensi · tidak digunakan</span>`:'<span class="muted">-</span>';
+        return `<tr><td><b>${esc(r.orderNo)}</b>${mix.mixed?'<br><span class="badge pending">Pesanan campuran</span>':''}</td><td>${productHtml(lines)}</td><td>${esc(r.orderDate||'-')}</td><td>${esc(r.releasedDate||'-')}</td><td class="num"><b>${money(r.amount)}</b><br><span class="final-source final-active">Final Income · Aktif</span></td><td class="num ready-estimate-cell">${oldEstimateHtml}</td><td><span class="badge ready">Siap · Final</span></td><td><button class="btn ghost edit-order-ready" data-order="${esc(r.orderNo)}">Edit</button></td></tr>`;
+      }
+      const pendingEstimateHtml=`<b>${money(estimate)}</b>${source?`<br>${source}`:''}<br><span class="estimate-active-note">Estimasi · Aktif</span>`;
+      return `<tr class="ready-estimate-row"><td><b>${esc(r.orderNo)}</b>${mix.mixed?'<br><span class="badge pending">Pesanan campuran</span>':''}</td><td>${productHtml(lines)}</td><td>${esc(r.orderDate||'-')}</td><td><span class="muted">Belum ada Income</span></td><td class="num"><span class="muted">-</span><br><span class="final-source">Menunggu Final Income</span></td><td class="num ready-estimate-cell">${pendingEstimateHtml}</td><td><span class="badge pending">Siap · Estimasi</span></td><td><button class="btn ghost edit-order-ready" data-order="${esc(r.orderNo)}">Edit</button></td></tr>`;
+    }).join(''):'<tr><td colspan="8" class="muted">Tidak ada pesanan yang siap dicairkan pada filter ini.</td></tr>';
     $$('.edit-order-ready').forEach(b=>b.addEventListener('click',()=>showEditOrder(b.dataset.order)));
   }
-
 
   function currentEstimateBatchRows(){ return currentPending().filter(r=>!r.estimateBatchId && r.estimateComplete); }
   async function makeEstimateBatch(){
@@ -803,48 +815,79 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
   }
   async function makeBatch(){
     const rows=currentReady(); if(!rows.length)return;
-    const batchId=nextBatchId(), baseTotal=rows.reduce((s,x)=>s+x.amount,0), groups=orderGroups();
+    const batchId=nextBatchId(), groups=orderGroups();
+    const finalRows=rows.filter(r=>!!r.income), estimateRows=rows.filter(r=>!r.income);
+    const finalTotal=finalRows.reduce((s,r)=>s+(Number(r.amount)||0),0);
+    const estimateTotal=estimateRows.reduce((s,r)=>s+(Number(r.estimateTotal)||0),0);
+    const baseTotal=finalTotal+estimateTotal;
     const corrections=outstandingCorrections();
     const correctionTotal=corrections.reduce((s,r)=>s+r.correctionDelta,0);
     const total=baseTotal+correctionTotal;
-    if(total<0){setMessage('batchMessage',`Batch belum dapat dibuat. Nominal final baru ${money(baseTotal)} lebih kecil dari koreksi negatif ${money(correctionTotal)}. Tambahkan lebih banyak pesanan ke filter.`,'warning');return;}
+    if(total<0){setMessage('batchMessage',`Batch belum dapat dibuat. Nominal aktif ${money(baseTotal)} lebih kecil dari koreksi negatif ${money(correctionTotal)}. Tambahkan lebih banyak pesanan ke filter.`,'warning');return;}
     const products=productSelection('ready');
     const selectedProducts=products===null?productNames():[...products];
     const productSummary=productSelectionSummary('ready');
     const basisLabel='Tanggal Order';
     const mixed=rows.filter(x=>productMixInfo(groups.get(x.orderNo)||[],products).mixed);
     $('dialogTitle').textContent='Konfirmasi Batch Pencairan';
-    $('dialogContent').innerHTML=`<p>Pesanan yang masuk batch akan dikunci agar tidak ikut pencairan berikutnya. Saldo koreksi estimasi yang belum dipakai otomatis ditambahkan/dikurangkan.</p><div class="dialog-summary"><div><span>ID Batch</span><strong>${esc(batchId)}</strong></div><div><span>Jumlah Pesanan</span><strong>${rows.length}</strong></div><div><span>Nominal Pesanan</span><strong>${money(baseTotal)}</strong></div><div><span>Koreksi Estimasi</span><strong>${correctionTotal>0?'+':''}${money(correctionTotal)}</strong></div><div><span>Total Pencairan</span><strong>${money(total)}</strong></div><div><span>Acuan Tanggal</span><strong>${esc(basisLabel)}</strong></div><div><span>Periode Filter</span><strong>${esc($('readyFrom').value||'Semua')} – ${esc($('readyTo').value||'Semua')}</strong></div><div><span>Filter Produk</span><strong>${esc(productSummary)}</strong></div><div><span>Pesanan Campuran</span><strong>${mixed.length}</strong></div></div>${mixed.length?`<div class="message warning">${mixed.length} pesanan memiliki produk yang Anda centang dan produk lain dalam No. Pesanan yang sama. Seluruh nominal Income pesanan tersebut ikut batch.</div>`:''}${corrections.length?`<div class="message info">${corrections.length} selisih estimasi lama ikut diselesaikan pada batch ini, net ${correctionTotal>0?'+':''}${money(correctionTotal)}.</div>`:''}`;
+    $('dialogContent').innerHTML=`<p>Batch dapat berisi <b>Final Income</b> dan <b>Pending Estimasi</b>. Jika Income sudah tersedia, Final selalu menjadi dasar. Pending Estimasi hanya dipakai bila Income belum tersedia.</p><div class="dialog-summary"><div><span>ID Batch</span><strong>${esc(batchId)}</strong></div><div><span>Jumlah Pesanan</span><strong>${rows.length}</strong></div><div><span>Final Income</span><strong>${finalRows.length} · ${money(finalTotal)}</strong></div><div><span>Pending Estimasi</span><strong>${estimateRows.length} · ${money(estimateTotal)}</strong></div><div><span>Koreksi Sebelumnya</span><strong>${correctionTotal>0?'+':''}${money(correctionTotal)}</strong></div><div><span>Total Pencairan</span><strong>${money(total)}</strong></div><div><span>Periode</span><strong>${esc($('readyFrom').value||'Semua')} – ${esc($('readyTo').value||'Semua')}</strong></div><div><span>Produk</span><strong>${esc(productSummary)}</strong></div></div>${estimateRows.length?`<div class="message warning">${estimateRows.length} pesanan belum mempunyai Income final dan akan dicairkan berdasarkan estimasi. Ketika Income masuk nanti, selisih otomatis menjadi koreksi.</div>`:''}${mixed.length?`<div class="message warning">${mixed.length} pesanan campuran ikut dengan seluruh nominal aktif No. Pesanan.</div>`:''}${corrections.length?`<div class="message info">${corrections.length} selisih estimasi lama ikut diselesaikan pada batch ini, net ${correctionTotal>0?'+':''}${money(correctionTotal)}.</div>`:''}`;
     const dlg=$('confirmDialog'); dlg.showModal(); const result=await new Promise(resolve=>{const fn=()=>{dlg.removeEventListener('close',fn);resolve(dlg.returnValue)};dlg.addEventListener('close',fn)}); if(result!=='confirm')return;
     if(rows.length>300){ setMessage('batchMessage','Batch terlalu besar untuk satu transaksi aman. Persempit filter menjadi maksimal 300 pesanan per batch.','warning'); return; }
     const createdAt=new Date().toISOString();
-    const batch={batchId,createdAt,status:'active',type:'final',count:rows.length,totalSnapshot:total,baseFinalTotal:baseTotal,correctionTotal,filterSnapshot:{dateBasis:'order',dateFrom:$('readyFrom').value||'',dateTo:$('readyTo').value||'',products:selectedProducts,productSummary:productSummary,search:$('readySearch').value.trim()||''},items:rows.map(x=>({orderNo:x.orderNo,amountSnapshot:x.amount,releasedDate:x.releasedDate,orderDate:readyOrderDate(x,groups),productsSnapshot:(groups.get(x.orderNo)||[]).map(line=>({product:line.product||'',variation:line.variation||'',quantity:Number(line.quantity)||0})),estimateSnapshot:Number(x.estimateTotal)||0,estimateSourceSnapshot:x.estimateSource||null,estimateDiffSnapshot:(Number(x.estimateTotal)||0)?(Number(x.amount)||0)-(Number(x.estimateTotal)||0):null})),corrections:corrections.map(r=>({orderNo:r.orderNo,estimatePaidAmount:r.estimatePaidAmount,finalAmount:r.amount,delta:r.correctionDelta}))};
+    const batchType=finalRows.length&&estimateRows.length?'mixed':estimateRows.length?'estimate':'final';
+    const batch={batchId,createdAt,status:'active',type:batchType,count:rows.length,totalSnapshot:total,baseActiveTotal:baseTotal,baseFinalTotal:finalTotal,baseEstimateTotal:estimateTotal,correctionTotal,filterSnapshot:{dateBasis:'order',dateFrom:$('readyFrom').value||'',dateTo:$('readyTo').value||'',products:selectedProducts,productSummary:productSummary,search:$('readySearch').value.trim()||''},items:rows.map(x=>{const basis=readyActiveBasis(x);return {orderNo:x.orderNo,basis:basis.kind,amountSnapshot:basis.amount,releasedDate:x.releasedDate||'',orderDate:x.orderDate||'',productsSnapshot:(groups.get(x.orderNo)||[]).map(line=>({product:line.product||'',variation:line.variation||'',quantity:Number(line.quantity)||0,estimateUnit:Number(line.estimateUnit)||0,estimateSubtotal:Number(line.estimateSubtotal)||0})),estimateSource:x.estimateSource||null,priorEstimateSnapshot:Number(x.estimateTotal)||0,priorEstimateSourceSnapshot:x.estimateSource||null,priorEstimateUsed:basis.kind==='estimate'};}),corrections:corrections.map(r=>({orderNo:r.orderNo,estimatePaidAmount:r.estimatePaidAmount,finalAmount:r.amount,delta:r.correctionDelta}))};
     try{
       await runTransaction(db,async tx=>{
-        const incomeRefs=rows.map(x=>doc(db,STORES.incomes,x.orderNo));
         const orderRefs=rows.map(x=>doc(db,STORES.orders,x.orderNo));
+        const incomeRefs=rows.map(x=>doc(db,STORES.incomes,x.orderNo));
         const correctionRefs=corrections.map(r=>doc(db,STORES.orders,r.orderNo));
-        const incomeSnaps=[], orderSnaps=[], correctionSnaps=[];
-        for(const ref of incomeRefs) incomeSnaps.push(await tx.get(ref));
+        const orderSnaps=[], incomeSnaps=[], correctionSnaps=[];
         for(const ref of orderRefs) orderSnaps.push(await tx.get(ref));
+        for(const ref of incomeRefs) incomeSnaps.push(await tx.get(ref));
         for(const ref of correctionRefs) correctionSnaps.push(await tx.get(ref));
         const conflicts=[];
-        incomeSnaps.forEach((snap,i)=>{ if(!snap.exists()) conflicts.push(`${rows[i].orderNo} (Income hilang)`); else if(snap.data().batchId) conflicts.push(`${rows[i].orderNo} (${snap.data().batchId})`); });
-        orderSnaps.forEach((snap,i)=>{ if(!snap.exists()) conflicts.push(`${rows[i].orderNo} (Order hilang)`); else if(isCancelledStatus(snap.data().status||'')) conflicts.push(`${rows[i].orderNo} (Status Batal)`); else if(snap.data().estimateBatchId) conflicts.push(`${rows[i].orderNo} (sudah ${snap.data().estimateBatchId})`); });
+        orderSnaps.forEach((snap,i)=>{
+          const row=rows[i], d=snap.data()||{};
+          if(!snap.exists()) return conflicts.push(`${row.orderNo} (Order hilang)`);
+          if(isCancelledStatus(d.status||'')) return conflicts.push(`${row.orderNo} (Status Batal)`);
+          if(d.estimateBatchId) return conflicts.push(`${row.orderNo} (sudah ${d.estimateBatchId})`);
+          if(!row.income){
+            const items=Array.isArray(d.items)?d.items:[];
+            const htmlEst=Number(d.shopeePendingAmount)||0;
+            const manualComplete=!!items.length && items.every(it=>(Number(it.estimateSubtotal)||0)>0);
+            const currentEstimate=htmlEst>0?htmlEst:items.reduce((sum,it)=>sum+(Number(it.estimateSubtotal)||0),0);
+            if(!(htmlEst>0||manualComplete) || currentEstimate!==Number(row.estimateTotal||0)) conflicts.push(`${row.orderNo} (estimasi berubah)`);
+          }
+        });
+        incomeSnaps.forEach((snap,i)=>{
+          const row=rows[i];
+          if(row.income){
+            if(!snap.exists()) conflicts.push(`${row.orderNo} (Income hilang)`);
+            else if(snap.data().batchId) conflicts.push(`${row.orderNo} (${snap.data().batchId})`);
+            else if(Number(snap.data().amount)||0 !== Number(row.amount)||0) conflicts.push(`${row.orderNo} (Final Income berubah)`);
+          }else if(snap.exists()){
+            conflicts.push(`${row.orderNo} (Income baru sudah masuk; refresh agar Final Income dipakai)`);
+          }
+        });
         correctionSnaps.forEach((snap,i)=>{const d=snap.data()||{};if(!snap.exists()||d.correctionSettledBatchId)conflicts.push(`${corrections[i].orderNo} (koreksi berubah)`);});
-        if(conflicts.length) throw new Error(`Pencairan dibatalkan karena ${conflicts.length} data tidak lagi memenuhi syarat: ${conflicts.slice(0,5).join(', ')}${conflicts.length>5?'…':''}`);
+        if(conflicts.length) throw new Error(`Pencairan dibatalkan karena ${conflicts.length} data berubah: ${conflicts.slice(0,5).join(', ')}${conflicts.length>5?'…':''}`);
         tx.set(doc(db,STORES.batches,batchId),batch);
-        incomeSnaps.forEach((snap,i)=>tx.update(incomeRefs[i],{batchId,lastBatchAt:createdAt}));
+        rows.forEach((row,i)=>{
+          if(row.income){
+            tx.update(incomeRefs[i],{batchId,lastBatchAt:createdAt});
+          }else{
+            tx.update(orderRefs[i],{estimateBatchId:batchId,estimatePaidAmount:Number(row.estimateTotal)||0,estimatePaidSource:row.estimateSource||'manual',estimatePaidAt:createdAt});
+          }
+        });
         correctionSnaps.forEach((snap,i)=>tx.update(correctionRefs[i],{correctionSettledBatchId:batchId}));
       });
-      await reloadCache(); renderAll(); setMessage('batchMessage',`${batchId} berhasil dibuat: nominal pesanan ${money(baseTotal)} ${correctionTotal?`+ koreksi ${correctionTotal>0?'+':''}${money(correctionTotal)} `:''}= total ${money(total)}.`,'success');
+      await reloadCache(); renderAll(); setMessage('batchMessage',`${batchId} berhasil dibuat: Final ${money(finalTotal)} + Estimasi ${money(estimateTotal)} ${correctionTotal?`+ koreksi ${correctionTotal>0?'+':''}${money(correctionTotal)} `:''}= total ${money(total)}.`,'success');
     }catch(err){ console.error(err); setMessage('batchMessage',err.message||String(err),'error'); }
   }
 
 
-
   function renderHistory(){
-    $('batchHistoryBody').innerHTML=cache.batches.length?cache.batches.map(b=>`<tr><td><b>${esc(b.batchId)}</b></td><td>${esc(localDateTime(b.createdAt))}</td><td>${b.status==='active'?'<span class="badge done">Aktif</span>':'<span class="badge cancelled">Dibatalkan</span>'}${b.type==='estimate'?' <span class="badge pending">Estimasi</span>':''}</td><td>${b.count}</td><td class="num">${money(b.totalSnapshot)}</td><td><button class="btn ghost detail-batch" data-id="${esc(b.batchId)}">Detail</button>${b.status==='active'?` <button class="btn ghost cancel-batch" data-id="${esc(b.batchId)}">Batalkan</button>`:''}</td></tr>`).join(''):'<tr><td colspan="6" class="muted">Belum ada Batch Pencairan.</td></tr>';
+    $('batchHistoryBody').innerHTML=cache.batches.length?cache.batches.map(b=>`<tr><td><b>${esc(b.batchId)}</b></td><td>${esc(localDateTime(b.createdAt))}</td><td>${b.status==='active'?'<span class="badge done">Aktif</span>':'<span class="badge cancelled">Dibatalkan</span>'}${b.type==='estimate'?' <span class="badge pending">Estimasi</span>':b.type==='mixed'?' <span class="badge review">Campuran</span>':''}</td><td>${b.count}</td><td class="num">${money(b.totalSnapshot)}</td><td><button class="btn ghost detail-batch" data-id="${esc(b.batchId)}">Detail</button>${b.status==='active'?` <button class="btn ghost cancel-batch" data-id="${esc(b.batchId)}">Batalkan</button>`:''}</td></tr>`).join(''):'<tr><td colspan="6" class="muted">Belum ada Batch Pencairan.</td></tr>';
     $$('.detail-batch').forEach(x=>x.addEventListener('click',()=>showBatch(x.dataset.id))); $$('.cancel-batch').forEach(x=>x.addEventListener('click',()=>cancelBatch(x.dataset.id)));
   }
   function showBatch(id){
@@ -854,12 +897,12 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     const basis=fs.dateBasis || (fs.source==='order'?'order':'released');
     const basisLabel=basis==='order'?'Tanggal Order':'Tanggal Dana Dilepas';
     const periodFrom=fs.dateFrom||fs.releasedFrom||'Semua', periodTo=fs.dateTo||fs.releasedTo||'Semua';
-    $('detailSubtitle').textContent=`${b.status==='active'?'Aktif':'Dibatalkan'} · ${b.type==='estimate'?'Batch Estimasi':'Batch Final'} · ${localDateTime(b.createdAt)} · ${b.count} pesanan · ${money(b.totalSnapshot)}${b.type==='estimate'?` (estimasi ${money(b.baseEstimateTotal||0)} ${b.correctionTotal?`+ koreksi ${b.correctionTotal>0?'+':''}${money(b.correctionTotal)}`:''})`:''} · Acuan ${basisLabel}: ${periodFrom} – ${periodTo}${(fs.productSummary||fs.product)?` · Produk ${fs.productSummary||fs.product}`:''}`;
+    $('detailSubtitle').textContent=`${b.status==='active'?'Aktif':'Dibatalkan'} · ${b.type==='estimate'?'Batch Estimasi':b.type==='mixed'?'Batch Campuran':'Batch Final'} · ${localDateTime(b.createdAt)} · ${b.count} pesanan · ${money(b.totalSnapshot)}${b.type==='estimate'?` (estimasi ${money(b.baseEstimateTotal||0)} ${b.correctionTotal?`+ koreksi ${b.correctionTotal>0?'+':''}${money(b.correctionTotal)}`:''})`:b.type==='mixed'?` (final ${money(b.baseFinalTotal||0)} + estimasi ${money(b.baseEstimateTotal||0)}${b.correctionTotal?` + koreksi ${b.correctionTotal>0?'+':''}${money(b.correctionTotal)}`:''})`:''} · Acuan ${basisLabel}: ${periodFrom} – ${periodTo}${(fs.productSummary||fs.product)?` · Produk ${fs.productSummary||fs.product}`:''}`;
     const groups=orderGroups();
     const itemRows=(b.items||[]).map(x=>{
       const lines=(Array.isArray(x.productsSnapshot)&&x.productsSnapshot.length)?x.productsSnapshot:(groups.get(x.orderNo)||[]);
       const orderDate=x.orderDate || (groups.get(x.orderNo)?.[0]?.orderDate) || '-';
-      const source=x.estimateSource==='shopeeHtml'?'<br><span class="estimate-source shopee">HTML Shopee</span>':x.estimateSource==='manual'?'<br><span class="estimate-source manual">Manual</span>':'';
+      const source=x.basis==='final'?'<br><span class="final-source final-active">Final Income</span>':x.estimateSource==='shopeeHtml'?'<br><span class="estimate-source shopee">Estimasi HTML Shopee</span>':x.estimateSource==='manual'?'<br><span class="estimate-source manual">Estimasi Manual</span>':b.type==='estimate'?'<br><span class="estimate-source manual">Estimasi</span>':'';
       return `<tr><td class="batch-order-no"><b>${esc(x.orderNo)}</b>${lines.length>1?`<div class="muted batch-item-count">${lines.length} item dalam 1 pesanan</div>`:''}</td><td>${lines.length?productHtml(lines):'<span class="muted">Detail produk tidak ditemukan di Master Order</span>'}</td><td>${esc(orderDate)}</td><td>${esc(x.releasedDate||'-')}</td><td class="num"><b>${money(x.amountSnapshot)}</b>${source}</td></tr>`;
     }).join('');
     const correctionRows=(b.corrections||[]).map(c=>`<tr class="correction-batch-row"><td><b>Koreksi · ${esc(c.orderNo)}</b></td><td><span class="muted">Final Shopee ${money(c.finalAmount)} − Estimasi dicairkan ${money(c.estimatePaidAmount)}</span></td><td>-</td><td>-</td><td class="num"><b class="${c.delta>0?'diff-plus':c.delta<0?'diff-minus':''}">${c.delta>0?'+':''}${money(c.delta)}</b></td></tr>`).join('');
@@ -869,7 +912,7 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
 
   async function cancelBatch(id){
     const b=cache.batches.find(x=>x.batchId===id); if(!b||b.status!=='active')return;
-    $('dialogTitle').textContent='Batalkan Batch'; $('dialogContent').innerHTML=`<p>Batch <b>${esc(id)}</b> akan ditandai <b>DIBATALKAN</b>. ${b.type==='estimate'?'Estimasi pada pesanan tetap tersimpan, tetapi status sudah dicairkan estimasi dan koreksi batch ini akan dilepas.':'No. Pesanan di dalamnya akan kembali menjadi Siap Dicairkan.'}</p><div class="dialog-summary"><div><span>Pesanan</span><strong>${b.count}</strong></div><div><span>Nominal Snapshot</span><strong>${money(b.totalSnapshot)}</strong></div></div>`;
+    $('dialogTitle').textContent='Batalkan Batch'; $('dialogContent').innerHTML=`<p>Batch <b>${esc(id)}</b> akan ditandai <b>DIBATALKAN</b>. ${b.type==='estimate'?'Estimasi pada pesanan tetap tersimpan, tetapi tanda sudah dicairkan estimasi dan koreksi batch ini akan dilepas.':b.type==='mixed'?'Item Final dan Estimasi akan sama-sama dikembalikan menjadi Siap Dicairkan sesuai sumber aktifnya.':'No. Pesanan di dalamnya akan kembali menjadi Siap Dicairkan.'}</p><div class="dialog-summary"><div><span>Pesanan</span><strong>${b.count}</strong></div><div><span>Nominal Snapshot</span><strong>${money(b.totalSnapshot)}</strong></div></div>`;
     const dlg=$('confirmDialog'); dlg.showModal(); const result=await new Promise(resolve=>{const fn=()=>{dlg.removeEventListener('close',fn);resolve(dlg.returnValue)};dlg.addEventListener('close',fn)}); if(result!=='confirm')return;
     const updatedBatch={...b,status:'cancelled',cancelledAt:new Date().toISOString()};
     const ids=new Set((b.items||[]).map(x=>x.orderNo));
@@ -877,11 +920,10 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, writ
     await putMany(STORES.batches,[updatedBatch]);
     if(incomeUpdates.length) await putMany(STORES.incomes,incomeUpdates);
     const groups=orderGroups(); const orderUpdates=[];
-    if(b.type==='estimate'){
-      for(const orderNo of ids){
-        const lines=groups.get(orderNo)||[];
-        if(lines[0]?.estimateBatchId===id) orderUpdates.push(...lines.map(line=>({...line,estimateBatchId:null,estimatePaidAmount:0,estimatePaidSource:null,estimatePaidAt:null})));
-      }
+    const estimateIds=new Set((b.items||[]).filter(x=>x.basis==='estimate' || (!x.basis && b.type==='estimate')).map(x=>x.orderNo));
+    for(const orderNo of estimateIds){
+      const lines=groups.get(orderNo)||[];
+      if(lines[0]?.estimateBatchId===id) orderUpdates.push(...lines.map(line=>({...line,estimateBatchId:null,estimatePaidAmount:0,estimatePaidSource:null,estimatePaidAt:null})));
     }
     const correctionOrders=new Set((b.corrections||[]).map(x=>x.orderNo));
     for(const orderNo of correctionOrders){

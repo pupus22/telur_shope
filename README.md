@@ -1,4 +1,20 @@
-# Shopee Payout v1.13.0
+# Shopee Payout v1.13.2
+
+
+
+- Halaman **Siap Dicairkan** sekarang menggabungkan dua sumber aktif: **Final Income** dan **Pending Estimasi**.
+- Jika Income sudah ada, **Final Income selalu menang** dan estimasi hanya referensi.
+- Jika Income belum ada tetapi estimasi HTML/manual lengkap, estimasi tampil sebagai **Siap · Estimasi** dan bisa masuk Batch Pencairan.
+- Satu Batch dapat berisi kombinasi Final + Estimasi (`type: mixed`).
+- Saat Income muncul setelah estimasi sudah dicairkan, hanya selisih Final - Estimasi yang menjadi koreksi.
+- Transaction guard membatalkan batch bila Income baru masuk di tengah proses, agar nilai estimasi tidak dipakai saat Final sudah tersedia.
+
+## Perbaikan v1.13.2 — Pending Estimasi masuk Siap Dicairkan
+- Jika **Income Excel sudah tersedia** dan order **belum pernah dicairkan**, Final Income menjadi **satu-satunya dasar pencairan**.
+- Estimasi HTML Shopee/manual yang lama tetap tersimpan hanya sebagai **riwayat/referensi** dan diberi label **Tidak digunakan**.
+- Mismatch antara estimasi lama dan Final Income pada order yang **Belum Dicairkan** tidak lagi dihitung sebagai selisih/koreksi.
+- Selisih/koreksi hanya dibuat untuk order yang **benar-benar sudah dicairkan melalui Batch Estimasi** sebelum Income final masuk.
+- Ringkasan dan tabel Siap Dicairkan sekarang menonjolkan **Final Shopee · Dasar Aktif**.
 
 ## Tambahan v1.13.0
 - Import HTML dari Shopee Seller Centre **Penghasilan Saya → Pending**.
@@ -58,9 +74,6 @@ Replace `index.html`, `app.js`, dan `styles.css` sekaligus. Tunggu GitHub Pages 
 
 
 ## v1.13.0
-- Halaman **Siap Dicairkan** menampilkan Estimasi, Pembayaran Final Shopee, dan Selisih Final − Estimasi per No. Pesanan.
-- Ringkasan menampilkan Total Estimasi, Final Shopee, dan Selisih pada hasil filter.
-- Sumber estimasi tetap diberi label **HTML Shopee** atau **Manual**.
-- Estimasi hanya informasi/acuan; Batch Final tetap memakai Income final Shopee.
-- Pengaman anti-double-payout: order yang sudah masuk Batch Estimasi tidak ikut Batch Final lagi ketika Income masuk. Selisihnya diselesaikan melalui saldo koreksi batch berikutnya.
-- Snapshot Batch Final menyimpan estimasi dan selisih sebagai audit.
+- Menambahkan tampilan estimasi lama di halaman **Siap Dicairkan** sebagai referensi awal.
+- Pengaman anti-double-payout: order yang sudah masuk Batch Estimasi tidak ikut Batch Final lagi ketika Income masuk.
+- Pada v1.13.1, mismatch estimasi vs Final pada order yang belum dicairkan tidak lagi dianggap koreksi.
