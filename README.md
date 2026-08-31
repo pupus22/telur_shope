@@ -1,4 +1,4 @@
-# Shopee Payout Manager v2.0.1 UI Hotfix
+# Shopee Payout Manager v2.0.2
 
 # Shopee Payout Manager — v2.0 Clean Rebuild
 
@@ -55,3 +55,13 @@ Lalu tunggu GitHub Pages deploy dan lakukan hard refresh (`Ctrl+F5`).
 - Tabel large di mobile memakai page scroll vertikal; hanya tabel yang boleh geser horizontal bila kolom banyak.
 - Bottom navigation fixed di viewport dan tetap terlihat saat halaman discroll.
 - Safe bottom padding mencegah konten tertutup bottom navigation.
+
+
+## v2.0.2 — Filter Produk Laporan Gabungan
+
+- Menambahkan filter produk checkbox multi-select pada Laporan Gabungan.
+- Filter produk bersifat exact product.
+- Jika salah satu produk pada satu No. Pesanan cocok, seluruh order tetap ditampilkan agar nominal Income/order tidak terpecah atau double count.
+- Daftar produk menyesuaikan filter tanggal, status, dan pencarian yang sedang aktif.
+- Reset Laporan Gabungan juga mengosongkan pilihan produk.
+- Export Excel mengikuti hasil filter produk.

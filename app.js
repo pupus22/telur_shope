@@ -21,7 +21,7 @@ const firebaseApp=initializeApp(FIREBASE_CONFIG), auth=getAuth(firebaseApp), db=
 
 const state={
   rawOrders:new Map(), rawIncomes:new Map(), orders:new Map(), incomes:new Map(), batches:[], uploads:[], ledger:new Map(), records:[],
-  selectedPending:new Set(), selectedReady:new Set(), pendingProducts:new Set(), readyProducts:new Set(), editingEstimate:null,
+  selectedPending:new Set(), selectedReady:new Set(), reportProducts:new Set(), pendingProducts:new Set(), readyProducts:new Set(), editingEstimate:null,
   busy:false
 };
 const $=id=>document.getElementById(id);
@@ -135,15 +135,20 @@ function duplicatePayoutOrders(){const c=new Map();for(const i of activeBatchIte
 function renderUploads(){
   $('uploadHistoryBody').innerHTML=state.uploads.length?state.uploads.slice(0,100).map(u=>`<tr><td>${esc(dt(u.createdAt))}</td><td>${esc(u.kind||'-')}</td><td>${esc(u.fileName||u.files||'-')}</td><td>${esc(u.rows??'-')}</td><td>${esc(u.summary||'-')}</td></tr>`).join(''):'<tr><td colspan="5" class="muted">Belum ada import.</td></tr>';
 }
-function filteredReport(){
+function reportBaseFilteredRecords(){
   const from=$('reportFrom').value,to=$('reportTo').value,q=text($('reportSearch').value).toLowerCase(),cat=$('reportState').value;
   return state.records.filter(r=>{
     const d=r.order?.orderDate||r.income?.orderDate||'';if(from&&d<from)return false;if(to&&d>to)return false;if(cat!=='all'&&reportCategory(r)!==cat)return false;
     const hay=[r.orderNo,r.order?.status,...productNames(r.order)].join(' ').toLowerCase();if(q&&!hay.includes(q))return false;return true;
-  }).sort((a,b)=>String(b.order?.orderDate||b.income?.orderDate||'').localeCompare(String(a.order?.orderDate||a.income?.orderDate||''))||b.orderNo.localeCompare(a.orderNo));
+  });
+}
+function filteredReport(){
+  return reportBaseFilteredRecords().filter(r=>orderMatchesProducts(r.order,state.reportProducts))
+    .sort((a,b)=>String(b.order?.orderDate||b.income?.orderDate||'').localeCompare(String(a.order?.orderDate||a.income?.orderDate||''))||b.orderNo.localeCompare(a.orderNo));
 }
 function estimateForReport(r){return r.activeEstimate||historicalEstimate(r.order)||null;}
 function renderReport(){
+  const productScope=reportBaseFilteredRecords();renderProductPicker('reportProductPicker',productScope,state.reportProducts,renderReport);
   const rows=filteredReport();$('reportCount').textContent=rows.length;
   $('reportEstimateTotal').textContent=money(rows.reduce((s,r)=>s+(estimateForReport(r)?.amount||0),0));$('reportFinalTotal').textContent=money(rows.reduce((s,r)=>s+(r.income?.amount||0),0));
   $('reportPaidTotal').textContent=money(rows.reduce((s,r)=>s+(r.paidSnapshot||0),0));$('reportCorrectionTotal').textContent=money(rows.reduce((s,r)=>s+(r.remainingCorrection||0),0));
@@ -302,7 +307,7 @@ function bind(){
   $('importExcelBtn').addEventListener('click',async()=>{const of=$('orderFile').files[0],inf=$('incomeFile').files[0];if(!of&&!inf){setMessage('excelMessage','Pilih minimal satu file Excel.','warning');return;}try{state.busy=true;setMessage('excelMessage','Memproses Excel...','info');let parts=[];if(of){const r=await importOrderExcel(of);parts.push(`Order: ${r.rows} pesanan`);await loadAll({syncLedger:false});}if(inf){const r=await importIncomeExcel(inf);parts.push(`Income: ${r.rows} final, ${r.cleared} estimasi dibersihkan`);}await loadAll();setMessage('excelMessage',`${parts.join(' · ')}. Master berhasil diperbarui.`,'success');}catch(e){setMessage('excelMessage',esc(e.message),'warning');}finally{state.busy=false;}});
   $('pendingHtmlFile').addEventListener('change',e=>{$('importHtmlBtn').disabled=!e.target.files[0];if(e.target.files[0])setMessage('htmlMessage',`Siap import: <b>${esc(e.target.files[0].name)}</b>`,'info');});
   $('importHtmlBtn').addEventListener('click',async()=>{const f=$('pendingHtmlFile').files[0];if(!f)return;try{state.busy=true;const r=await importPendingHtml(f);await loadAll();setMessage('htmlMessage',`HTML dibaca ${r.rows} order: <b>${r.matched} cocok</b>, ${r.skippedFinal} diabaikan karena Final Excel sudah ada, ${r.skippedLocked} sudah dicairkan estimasi, ${r.unmatched} tidak ada di Master Order. Total nominal di HTML ${money(r.total)}.`,'success');}catch(e){setMessage('htmlMessage',esc(e.message),'warning');}finally{state.busy=false;}});
-  ['reportFrom','reportTo','reportState','reportSearch'].forEach(x=>$(x).addEventListener('input',renderReport));$('reportReset').addEventListener('click',()=>{$('reportFrom').value='';$('reportTo').value='';$('reportState').value='all';$('reportSearch').value='';renderReport();});$('exportReportBtn').addEventListener('click',exportReport);
+  ['reportFrom','reportTo','reportState','reportSearch'].forEach(x=>$(x).addEventListener('input',renderReport));$('reportReset').addEventListener('click',()=>{$('reportFrom').value='';$('reportTo').value='';$('reportState').value='all';$('reportSearch').value='';state.reportProducts.clear();renderReport();});$('exportReportBtn').addEventListener('click',exportReport);
   ['pendingFrom','pendingTo','pendingSearch'].forEach(x=>$(x).addEventListener('input',renderPending));$('pendingReset').addEventListener('click',()=>{$('pendingFrom').value='';$('pendingTo').value='';$('pendingSearch').value='';state.pendingProducts.clear();state.selectedPending.clear();renderPending();});$('pendingSelectAll').addEventListener('change',e=>{const rows=filteredPending().filter(r=>r.state==='pendingEstimated');rows.forEach(r=>e.target.checked?state.selectedPending.add(r.orderNo):state.selectedPending.delete(r.orderNo));renderPending();});$('createEstimateBatchBtn').addEventListener('click',()=>createBatch('estimate'));
   ['readyFrom','readyTo','readySearch'].forEach(x=>$(x).addEventListener('input',renderReady));$('readyReset').addEventListener('click',()=>{$('readyFrom').value='';$('readyTo').value='';$('readySearch').value='';state.readyProducts.clear();state.selectedReady.clear();renderReady();});$('readySelectAll').addEventListener('change',e=>{filteredReady().forEach(r=>e.target.checked?state.selectedReady.add(r.orderNo):state.selectedReady.delete(r.orderNo));renderReady();});$('createFinalBatchBtn').addEventListener('click',()=>createBatch('final'));
   $('saveEstimateBtn').addEventListener('click',saveManualEstimate);$('exportBatchBtn').addEventListener('click',exportBatches);$('syncLedgerBtn').addEventListener('click',()=>syncCorrectionLedger(true).catch(e=>flash(e.message,'error')));$('resetDbBtn').addEventListener('click',resetDatabase);

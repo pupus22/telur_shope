@@ -27,3 +27,13 @@
 - `app.js`: JavaScript syntax OK.
 - Tidak ada duplicate HTML IDs.
 - Semua ID yang direferensikan `app.js` tersedia di `index.html`.
+
+
+## v2.0.2 Filter Produk Laporan Gabungan
+- [x] reportProductPicker tersedia di DOM.
+- [x] pilihan produk tersimpan di state.reportProducts.
+- [x] matching berdasarkan nama produk exact dari Master Order.
+- [x] satu produk cocok => seluruh No. Pesanan lolos filter.
+- [x] filter produk tidak mengubah nominal Income per order.
+- [x] Reset menghapus pilihan produk.
+- [x] Export menggunakan filteredReport sehingga mengikuti filter produk.

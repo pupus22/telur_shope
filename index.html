@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#0f172a">
   <title>Shopee Payout Manager · Clean Rebuild</title>
-  <link rel="stylesheet" href="./styles.css?v=2.0.1-ui">
+  <link rel="stylesheet" href="./styles.css?v=2.0.2">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -50,7 +50,7 @@
       <header class="topbar">
         <button id="drawerOpen" class="icon-btn mobile-only" type="button">☰</button>
         <div><h1 id="pageTitle">Dashboard</h1><p id="pageSub">Ringkasan master terbaru.</p></div>
-        <div class="topbar-right"><span class="version-pill">v2.0.1</span><button id="refreshBtn" class="btn ghost" type="button">Refresh</button></div>
+        <div class="topbar-right"><span class="version-pill">v2.0.2</span><button id="refreshBtn" class="btn ghost" type="button">Refresh</button></div>
       </header>
 
       <div id="globalMessage" class="global-message" hidden></div>
@@ -92,6 +92,7 @@
         <article class="card">
           <div class="card-head"><div><h2>Laporan Gabungan</h2><p>Tempat melihat perjalanan lengkap: Order, Estimasi, Final Income, Pencairan, dan Koreksi.</p></div><button id="exportReportBtn" class="btn ghost" type="button">Export Excel</button></div>
           <div class="filters six"><label>Order dari<input id="reportFrom" type="date"></label><label>Sampai<input id="reportTo" type="date"></label><label>Status<select id="reportState"><option value="all">Semua</option><option value="pending">Pending</option><option value="readyFinal">Siap Dicairkan</option><option value="paid">Sudah Dicairkan</option><option value="cancelled">Batal</option><option value="held">Ditahan</option></select></label><label>Cari<input id="reportSearch" type="search" placeholder="No pesanan / produk"></label><div class="filter-action"><button id="reportReset" class="btn ghost" type="button">Reset</button></div></div>
+          <div id="reportProductPicker" class="product-picker"></div>
           <div class="summary-strip cols-5"><div><span>Pesanan</span><strong id="reportCount">0</strong></div><div><span>Estimasi</span><strong id="reportEstimateTotal">Rp0</strong></div><div><span>Final Income</span><strong id="reportFinalTotal">Rp0</strong></div><div><span>Sudah Dicairkan</span><strong id="reportPaidTotal">Rp0</strong></div><div><span>Sisa Koreksi</span><strong id="reportCorrectionTotal">Rp0</strong></div></div>
           <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Status Order</th><th>Estimasi / Riwayat</th><th class="num">Final Income</th><th>Pencairan</th><th class="num">Koreksi</th><th>Status</th></tr></thead><tbody id="reportBody"></tbody></table></div>
         </article>
@@ -138,7 +139,7 @@
 
       <section id="view-settings" class="view">
         <div class="grid-2">
-          <article class="card"><div class="card-head"><div><h2>Status Sistem</h2></div></div><div class="status-list"><div><span>Versi</span><strong>2.0.1-ui</strong></div><div><span>Schema</span><strong>v2</strong></div><div><span>Firebase</span><strong id="settingsFirebase">-</strong></div><div><span>Admin UID</span><strong>terkunci</strong></div></div><button id="syncLedgerBtn" class="btn ghost" type="button">Sinkronkan Ledger Koreksi</button></article>
+          <article class="card"><div class="card-head"><div><h2>Status Sistem</h2></div></div><div class="status-list"><div><span>Versi</span><strong>2.0.2</strong></div><div><span>Schema</span><strong>v2</strong></div><div><span>Firebase</span><strong id="settingsFirebase">-</strong></div><div><span>Admin UID</span><strong>terkunci</strong></div></div><button id="syncLedgerBtn" class="btn ghost" type="button">Sinkronkan Ledger Koreksi</button></article>
           <article class="card danger-card"><div class="card-head"><div><h2>Reset Database</h2><p>Hanya untuk mulai benar-benar kosong. Riwayat Batch juga akan terhapus.</p></div></div><label>Ketik <b>HAPUS SEMUA</b><input id="resetPhrase" type="text" autocomplete="off"></label><button id="resetDbBtn" class="btn danger" type="button">Hapus Semua Data Aplikasi</button><div id="settingsMessage" class="message warning">Jangan gunakan reset jika masih membutuhkan riwayat Batch.</div></article>
         </div>
       </section>
@@ -153,6 +154,6 @@
 
   <dialog id="batchDetailDialog" class="modal"><form method="dialog" class="modal-shell"><header><div><h2 id="batchDetailTitle">Detail Batch</h2><p id="batchDetailMeta"></p></div><button class="icon-btn" value="cancel">×</button></header><div class="modal-body" id="batchDetailBody"></div><footer><button class="btn primary" value="cancel">Tutup</button></footer></form></dialog>
 
-  <script type="module" src="./app.js?v=2.0.1-ui"></script>
+  <script type="module" src="./app.js?v=2.0.2"></script>
 </body>
 </html>
