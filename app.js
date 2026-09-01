@@ -1,11 +1,11 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';
-import { getFirestore, collection, doc, getDocs, setDoc, writeBatch, runTransaction, query, orderBy, limit } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
+import { getFirestore, collection, doc, getDocs, writeBatch, query, orderBy, limit } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 import {
   APP_VERSION, SCHEMA_VERSION, text, num, isCancelled, safeDateOnly, fileEndDate, compareSourceDate,
   normalizeIncome, normalizeOrder, normalizeBatch, recordsFromMaps, buildPayoutItemMap,
   buildCorrectionAppliedMap, buildCorrectionPlan, historicalEstimate
-} from './core.js?v=2.0.9';
+} from './core.js?v=2.1.0';
 
 const FIREBASE_CONFIG={
   apiKey:'AIzaSyDYc-6mcJK4NgMfjFL4Xyew2hSixYv51As',
@@ -22,7 +22,8 @@ const firebaseApp=initializeApp(FIREBASE_CONFIG), auth=getAuth(firebaseApp), db=
 const state={
   rawOrders:new Map(), rawIncomes:new Map(), orders:new Map(), incomes:new Map(), batches:[], uploads:[], ledger:new Map(), records:[],
   selectedPending:new Set(), selectedReady:new Set(), reportProducts:new Set(), reportOrderStatuses:new Set(), pendingProducts:new Set(), readyProducts:new Set(), editingEstimate:null,
-  busy:false, cacheLoaded:false, lastServerSync:''
+  dirty:{orders:new Set(),incomes:new Set(),batches:new Set(),uploads:new Set(),ledger:new Set()},
+  busy:false, cacheLoaded:false, lastServerSync:'', pendingFullReset:false
 };
 const $=id=>document.getElementById(id);
 const $$=sel=>[...document.querySelectorAll(sel)];
@@ -140,6 +141,12 @@ function correctionBalance(){return correctionEligibleRecords().filter(r=>r.stat
 
 const CACHE_KEY='shopee-payout-v2-cache';
 const CACHE_MAX_UPLOADS=30;
+const DIRTY_KINDS=['orders','incomes','batches','uploads','ledger'];
+function dirtyCount(){return DIRTY_KINDS.reduce((n,k)=>n+state.dirty[k].size,0)+(state.pendingFullReset?1:0);}
+function markDirty(kind,id){if(state.dirty[kind]&&id)state.dirty[kind].add(id);}
+function clearDirty(){DIRTY_KINDS.forEach(k=>state.dirty[k].clear());state.pendingFullReset=false;}
+function dirtySnapshot(){return Object.fromEntries(DIRTY_KINDS.map(k=>[k,[...state.dirty[k]]));}
+function restoreDirty(d){DIRTY_KINDS.forEach(k=>state.dirty[k]=new Set(Array.isArray(d?.[k])?d[k]:[]));}
 function rebuildState({render=true,save=true}={}){
   state.incomes=new Map([...state.rawIncomes].map(([k,v])=>[k,normalizeIncome(v,k)]));
   state.orders=new Map([...state.rawOrders].map(([k,v])=>[k,normalizeOrder(v,k,state.incomes.has(k))]));
@@ -151,7 +158,7 @@ function rebuildState({render=true,save=true}={}){
 }
 function saveCache(){
   try{
-    const payload={schemaVersion:SCHEMA_VERSION,savedAt:nowIso(),rawOrders:[...state.rawOrders.values()],rawIncomes:[...state.rawIncomes.values()],batches:state.batches,uploads:state.uploads.slice(0,CACHE_MAX_UPLOADS)};
+    const payload={schemaVersion:SCHEMA_VERSION,savedAt:nowIso(),lastServerSync:state.lastServerSync||'',pendingFullReset:!!state.pendingFullReset,dirty:dirtySnapshot(),rawOrders:[...state.rawOrders.values()],rawIncomes:[...state.rawIncomes.values()],batches:state.batches,uploads:state.uploads.slice(0,CACHE_MAX_UPLOADS),ledger:[...state.ledger.values()]};
     localStorage.setItem(CACHE_KEY,JSON.stringify(payload));state.cacheLoaded=true;
   }catch(e){state.cacheLoaded=false;console.warn('Cache lokal tidak tersimpan:',e);}
 }
@@ -163,7 +170,9 @@ function loadCache(){
     state.rawIncomes=new Map(c.rawIncomes.map(x=>[x.orderNo||x.id,x]));
     state.batches=Array.isArray(c.batches)?c.batches:[];
     state.uploads=Array.isArray(c.uploads)?c.uploads.slice(0,CACHE_MAX_UPLOADS):[];
-    state.cacheLoaded=true;state.lastServerSync=c.savedAt||'';
+    state.ledger=new Map((Array.isArray(c.ledger)?c.ledger:[]).map(x=>[x.orderNo||x.id,x]));
+    restoreDirty(c.dirty);state.pendingFullReset=!!c.pendingFullReset;
+    state.cacheLoaded=true;state.lastServerSync=c.lastServerSync||'';
     rebuildState({render:false,save:false});return true;
   }catch(e){console.warn('Cache lokal rusak:',e);return false;}
 }
@@ -171,41 +180,48 @@ function clearCache(){try{localStorage.removeItem(CACHE_KEY);}catch{}state.cache
 async function readCollection(name){assertAdmin();const snap=await getDocs(collection(db,name));return snap.docs.map(d=>({id:d.id,...d.data()}));}
 async function readRecentUploads(){
   assertAdmin();
-  try{
-    const snap=await getDocs(query(collection(db,C.uploads),orderBy('createdAt','desc'),limit(CACHE_MAX_UPLOADS)));
-    return snap.docs.map(d=>({id:d.id,...d.data()}));
-  }catch(e){console.warn('Gagal membaca log terbaru:',e);return [];}
+  try{const snap=await getDocs(query(collection(db,C.uploads),orderBy('createdAt','desc'),limit(CACHE_MAX_UPLOADS)));return snap.docs.map(d=>({id:d.id,...d.data()}));}
+  catch(e){console.warn('Gagal membaca log terbaru:',e);return [];}
 }
-async function loadAll(){
-  assertAdmin();
+async function deleteCollectionServer(name){
+  const snap=await getDocs(collection(db,name));const refs=snap.docs.map(d=>d.ref);
+  for(let i=0;i<refs.length;i+=350){const wb=writeBatch(db);refs.slice(i,i+350).forEach(r=>wb.delete(r));await wb.commit();}
+}
+async function pushDirtyDocs(){
+  const jobs=[];
+  for(const orderNo of state.dirty.orders){const data=state.rawOrders.get(orderNo);if(data)jobs.push({col:C.orders,id:orderNo,data});}
+  for(const orderNo of state.dirty.incomes){const data=state.rawIncomes.get(orderNo);if(data)jobs.push({col:C.incomes,id:orderNo,data});}
+  for(const batchId of state.dirty.batches){const data=state.batches.find(x=>x.batchId===batchId);if(data)jobs.push({col:C.batches,id:batchId,data});}
+  for(const uploadId of state.dirty.uploads){const data=state.uploads.find(x=>(x.uploadId||x.id)===uploadId);if(data)jobs.push({col:C.uploads,id:uploadId,data});}
+  for(const orderNo of state.dirty.ledger){const data=state.ledger.get(orderNo);if(data)jobs.push({col:C.ledger,id:orderNo,data});}
+  for(let i=0;i<jobs.length;i+=350){const wb=writeBatch(db);jobs.slice(i,i+350).forEach(x=>wb.set(doc(db,x.col,x.id),x.data,{merge:true}));await wb.commit();}
+  return jobs.length;
+}
+function rebuildLedgerLocal(){
+  const derived=currentAppliedMap(),keys=new Set([...derived.keys(),...state.ledger.keys()]);
+  for(const orderNo of keys){const appliedAmount=Number(derived.get(orderNo)||0),old=state.ledger.get(orderNo);if(Number(old?.appliedAmount||0)===appliedAmount)continue;const row={orderNo,appliedAmount,updatedAt:nowIso(),schemaVersion:SCHEMA_VERSION};state.ledger.set(orderNo,row);markDirty('ledger',orderNo);}
+}
+async function pullServerIntoLocal(){
   const [ro,ri,rb,ru]=await Promise.all([readCollection(C.orders),readCollection(C.incomes),readCollection(C.batches),readRecentUploads()]);
   state.rawOrders=new Map(ro.map(x=>[x.orderNo||x.id,x]));
   state.rawIncomes=new Map(ri.map(x=>[x.orderNo||x.id,x]));
   state.batches=rb;state.uploads=ru;state.ledger=new Map();
-  state.lastServerSync=nowIso();
-  rebuildState({render:true,save:true});
 }
-async function ledgerNeedsSync(){
-  const derived=currentAppliedMap();const keys=new Set([...derived.keys(),...state.ledger.keys()]);
-  for(const k of keys)if(Math.round(derived.get(k)||0)!==Math.round(state.ledger.get(k)?.appliedAmount||0))return true;
-  return false;
-}
-async function cleanupFinalAndCancelledEstimates(){
-  const updates=[];
-  for(const [orderNo,raw] of state.rawOrders){
-    const hasIncome=state.incomes.has(orderNo),cancelled=isCancelled(raw.status);if(!hasIncome&&!cancelled)continue;
-    const normalized=normalizeOrder(raw,orderNo,hasIncome);const hasActiveRaw=raw.pendingEstimate!=null||Number(raw.shopeePendingAmount)>0;
-    if(!hasActiveRaw)continue;
-    const data={pendingEstimate:null,shopeePendingAmount:0,shopeePendingStatus:'',shopeePendingReleaseEstimate:'',shopeePendingPaymentMethod:'',shopeePendingSourceFile:'',schemaVersion:SCHEMA_VERSION};if(!raw.lastEstimate&&normalized.lastEstimate)data.lastEstimate=normalized.lastEstimate;updates.push({orderNo,data});
-  }
-  for(let i=0;i<updates.length;i+=350){const wb=writeBatch(db);updates.slice(i,i+350).forEach(x=>wb.set(doc(db,C.orders,x.orderNo),x.data,{merge:true}));await wb.commit();}
-  return updates.length;
-}
-async function syncCorrectionLedger(show=true){
-  assertAdmin();const derived=currentAppliedMap(),keys=new Set([...derived.keys(),...state.ledger.keys()]);
-  const arr=[...keys];for(let i=0;i<arr.length;i+=400){const wb=writeBatch(db);for(const orderNo of arr.slice(i,i+400))wb.set(doc(db,C.ledger,orderNo),{orderNo,appliedAmount:Number(derived.get(orderNo)||0),updatedAt:nowIso(),schemaVersion:SCHEMA_VERSION},{merge:true});await wb.commit();}
-  state.ledger=new Map([...keys].map(k=>[k,{orderNo:k,appliedAmount:Number(derived.get(k)||0)}]));
-  if(show)flash('Ledger koreksi sudah disinkronkan dari riwayat Batch.','success');
+async function syncServerNow(){
+  if(state.busy)return;assertAdmin();
+  try{
+    state.busy=true;renderSettings();setMessage('settingsSyncMessage','Sinkronisasi sedang berjalan. Data lokal tetap aman bila server gagal.','info');
+    rebuildLedgerLocal();
+    const hadLocal=state.cacheLoaded;
+    if(state.pendingFullReset){for(const name of [C.orders,C.incomes,C.batches,C.uploads,C.ledger,'anomalies','edits'])await deleteCollectionServer(name);}
+    const pushed=await pushDirtyDocs();
+    // Pull hanya pada sinkron manual. Ini sekaligus mengambil perubahan server dari perangkat lain.
+    await pullServerIntoLocal();
+    state.lastServerSync=nowIso();clearDirty();rebuildState({render:true,save:true});
+    setMessage('settingsSyncMessage',`Sinkronisasi berhasil ${dt(state.lastServerSync)}. ${pushed} perubahan lokal dikirim ke Firebase${hadLocal?' dan data server diperbarui ke cache lokal':'. Cache lokal dibuat dari server'}.`,'success');
+    flash('Sinkronisasi Firebase selesai.','success');
+  }catch(e){saveCache();renderSettings();setMessage('settingsSyncMessage',`Sinkronisasi gagal: ${esc(e.message)}. Perubahan lokal tetap tersimpan dan akan dicoba lagi saat tombol Sinkronkan ditekan.`,'warning');flash('Sinkronisasi gagal; data lokal tetap aman.','error');}
+  finally{state.busy=false;renderSettings();}
 }
 
 function allProducts(records){return [...new Set(records.flatMap(r=>productNames(r.order)).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'id'));}
@@ -318,7 +334,14 @@ function renderRecon(){
   const held=[];state.records.filter(r=>r.state==='incomeOnly').forEach(r=>held.push({title:`${r.orderNo} · Income tanpa Order`,desc:`Final Income ${money(r.income.amount)} ditahan sampai Master Order tersedia.`}));state.records.filter(r=>r.state==='cancelledWithIncome').forEach(r=>held.push({title:`${r.orderNo} · Pesanan Batal memiliki Income`,desc:`Income ${money(r.income.amount)} tidak masuk Siap Dicairkan.`}));state.records.filter(r=>r.state==='orderStatusUnknown').forEach(r=>held.push({title:`${r.orderNo} · Status Order kosong`,desc:'Order ditahan agar tidak masuk Pending/Siap Dicairkan secara salah.'}));state.records.filter(r=>r.state==='incomeNonPositive').forEach(r=>held.push({title:`${r.orderNo} · Final Income tidak positif`,desc:`Nominal ${money(r.income?.amount||0)} ditahan untuk pemeriksaan.`}));duplicatePayoutOrders().forEach(x=>held.push({title:`${x.orderNo} · Terdapat ${x.count} snapshot Batch`,desc:'Kemungkinan data legacy pernah tercatat lebih dari satu pencairan. Periksa Riwayat Batch.'}));
   $('heldList').innerHTML=held.length?held.map(x=>`<div class="anomaly"><b>${esc(x.title)}</b><span>${esc(x.desc)}</span></div>`).join(''):'<div class="empty-state">Tidak ada data ditahan.</div>';
 }
-function renderSettings(){$('settingsFirebase').textContent=auth.currentUser?'Terhubung':'Tidak terhubung';const c=$('settingsCache');if(c)c.textContent=state.cacheLoaded?'Aktif':'Belum ada';const ls=$('settingsLastSync');if(ls)ls.textContent=state.lastServerSync?dt(state.lastServerSync):'Belum pernah';}
+function renderSettings(){
+  $('settingsFirebase').textContent=auth.currentUser?'Login aktif':'Tidak terhubung';
+  const c=$('settingsCache');if(c)c.textContent=state.cacheLoaded?'Aktif · lokal':'Belum ada';
+  const ls=$('settingsLastSync');if(ls)ls.textContent=state.lastServerSync?dt(state.lastServerSync):'Belum pernah';
+  const dc=$('settingsDirtyCount');if(dc)dc.textContent=state.pendingFullReset?'RESET server tertunda':`${dirtyCount()} perubahan`;
+  const btn=$('syncNowBtn');if(btn){btn.disabled=state.busy;btn.textContent=state.busy?'Menyinkronkan...':'Sinkronkan Sekarang';}
+  const fs=$('firebaseStatus');if(fs&&!state.busy)fs.textContent=dirtyCount()?`Lokal · ${dirtyCount()} belum sinkron`:(state.lastServerSync?'Lokal · sinkron':'Lokal · belum sinkron');
+}
 function renderAll(){state.records=recordsFromMaps(state.orders,state.incomes,state.batches);renderDashboard();renderUploads();renderReport();renderPending();renderCancelled();renderReady();renderHistory();renderRecon();renderSettings();}
 
 function findHeader(rows,required){for(let i=0;i<Math.min(rows.length,30);i++){const hdr=rows[i].map(x=>text(x));if(required.every(r=>hdr.includes(r)))return i;}return -1;}
@@ -340,8 +363,7 @@ async function importOrderExcel(file){
     if(old&&!needsCleanup&&sameData(old,data,['status','cancelReason','orderDate','orderDateTime','items'])){unchanged++;continue;}
     payload.push({orderNo,data});old?updated++:inserted++;
   }
-  for(let i=0;i<payload.length;i+=350){const wb=writeBatch(db);payload.slice(i,i+350).forEach(x=>wb.set(doc(db,C.orders,x.orderNo),x.data,{merge:true}));await wb.commit();}
-  for(const x of payload){const prev=state.rawOrders.get(x.orderNo)||{orderNo:x.orderNo};state.rawOrders.set(x.orderNo,{...prev,...x.data});}
+  for(const x of payload){const prev=state.rawOrders.get(x.orderNo)||{orderNo:x.orderNo};state.rawOrders.set(x.orderNo,{...prev,...x.data});markDirty('orders',x.orderNo);}
   rebuildState({render:false,save:false});
   await logUpload({kind:'Order Excel',fileName:file.name,rows:groups.size,summary:`${inserted} baru, ${updated} berubah, ${unchanged} tidak berubah, ${stale} dilewati karena file lebih lama`});return {rows:groups.size,inserted,updated,unchanged,stale};
 }
@@ -357,14 +379,12 @@ async function importIncomeExcel(file){
     if(old&&sameData(old,data,['amount','orderDate','releaseDate','releaseMethod','paymentMethod','orderType','skuRows']))unchanged++;else{incomePayload.push({orderNo,data});old?updated++:inserted++;}
     const o=state.orders.get(orderNo),rawO=state.rawOrders.get(orderNo);if(o&&rawO&&(rawO.pendingEstimate||Number(rawO.shopeePendingAmount)>0)){const visibleBeforeFinal=normalizeOrder(rawO,orderNo,false),hist=visibleBeforeFinal.pendingEstimate||o.lastEstimate||(!o.lastEstimate&&o.payoutLock?.source==='estimate'?o.payoutLock.estimateSnapshot:null);const upd={schemaVersion:SCHEMA_VERSION,pendingEstimate:null,shopeePendingAmount:0,shopeePendingStatus:'',shopeePendingReleaseEstimate:'',shopeePendingPaymentMethod:'',shopeePendingSourceFile:''};if(hist&&!rawO.lastEstimate)upd.lastEstimate=hist;orderUpdates.push({orderNo,data:upd});cleared++;}
   }
-  for(let i=0;i<incomePayload.length;i+=300){const wb=writeBatch(db);incomePayload.slice(i,i+300).forEach(x=>wb.set(doc(db,C.incomes,x.orderNo),x.data,{merge:true}));await wb.commit();}
-  for(let i=0;i<orderUpdates.length;i+=300){const wb=writeBatch(db);orderUpdates.slice(i,i+300).forEach(x=>wb.set(doc(db,C.orders,x.orderNo),x.data,{merge:true}));await wb.commit();}
-  for(const x of incomePayload){const prev=state.rawIncomes.get(x.orderNo)||{orderNo:x.orderNo};state.rawIncomes.set(x.orderNo,{...prev,...x.data});}
-  for(const x of orderUpdates){const prev=state.rawOrders.get(x.orderNo)||{orderNo:x.orderNo};state.rawOrders.set(x.orderNo,{...prev,...x.data});}
+  for(const x of incomePayload){const prev=state.rawIncomes.get(x.orderNo)||{orderNo:x.orderNo};state.rawIncomes.set(x.orderNo,{...prev,...x.data});markDirty('incomes',x.orderNo);}
+  for(const x of orderUpdates){const prev=state.rawOrders.get(x.orderNo)||{orderNo:x.orderNo};state.rawOrders.set(x.orderNo,{...prev,...x.data});markDirty('orders',x.orderNo);}
   rebuildState({render:false,save:false});
   const duplicates=orderRowsRaw.length-orderRows.length;await logUpload({kind:'Income Excel',fileName:file.name,rows:orderRows.length,summary:`${inserted} baru, ${updated} berubah, ${unchanged} tidak berubah, ${cleared} estimasi aktif dibersihkan, ${stale} file lama dilewati${duplicates?`, ${duplicates} duplikat Order digabung`:''}`});return {rows:orderRows.length,inserted,updated,unchanged,cleared,stale,duplicates};
 }
-async function logUpload(data){const uploadId=id('UP'),row={uploadId,createdAt:nowIso(),schemaVersion:SCHEMA_VERSION,...data};await setDoc(doc(db,C.uploads,uploadId),row);state.uploads=[row,...state.uploads].slice(0,CACHE_MAX_UPLOADS);saveCache();}
+async function logUpload(data){const uploadId=id('UP'),row={uploadId,createdAt:nowIso(),schemaVersion:SCHEMA_VERSION,...data};state.uploads=[row,...state.uploads].slice(0,CACHE_MAX_UPLOADS);markDirty('uploads',uploadId);saveCache();}
 
 async function importPendingHtml(file){
   const raw=await file.text();if(!raw.includes('portal/finance/income')&&!raw.includes('Dana Akan Dilepaskan'))throw new Error('HTML bukan halaman Penghasilan Saya → Pending Shopee.');
@@ -422,8 +442,7 @@ async function importPendingHtml(file){
   }
 
   const writes=[...clears,...updates];
-  for(let i=0;i<writes.length;i+=400){const wb=writeBatch(db);writes.slice(i,i+400).forEach(x=>wb.set(doc(db,C.orders,x.orderNo),x.patch,{merge:true}));await wb.commit();}
-  for(const x of writes){const rawOld=state.rawOrders.get(x.orderNo)||{orderNo:x.orderNo};state.rawOrders.set(x.orderNo,{...rawOld,...x.patch});}
+  for(const x of writes){const rawOld=state.rawOrders.get(x.orderNo)||{orderNo:x.orderNo};state.rawOrders.set(x.orderNo,{...rawOld,...x.patch});markDirty('orders',x.orderNo);}
   rebuildState({render:false,save:false});
 
   // Sesudah snapshot diterapkan, cari Master Pending yang tidak muncul pada HTML terbaru.
@@ -454,10 +473,9 @@ async function saveManualEstimate(){
   try{
     state.busy=true;
     const patch={schemaVersion:SCHEMA_VERSION,pendingEstimate:amount?{source:'manual',amount,items,updatedAt:timestamp,sourceFile:''}:null};
-    await setDoc(doc(db,C.orders,orderNo),patch,{merge:true});
-    const rawOld=state.rawOrders.get(orderNo)||{orderNo};state.rawOrders.set(orderNo,{...rawOld,...patch});
+    const rawOld=state.rawOrders.get(orderNo)||{orderNo};state.rawOrders.set(orderNo,{...rawOld,...patch});markDirty('orders',orderNo);
     $('estimateDialog').close();rebuildState({render:true,save:true});
-    flash(amount?`Estimasi manual ${orderNo} disimpan ${money(amount)}.`:`Estimasi ${orderNo} dikosongkan.`,'success');
+    flash(amount?`Estimasi manual ${orderNo} disimpan lokal ${money(amount)}.`:`Estimasi ${orderNo} dikosongkan secara lokal.`,'success');
   }catch(e){setMessage('estimateMessage',esc(e.message),'warning');}finally{state.busy=false;}
 }
 
@@ -466,35 +484,36 @@ function selectedPendingRecords(){return filteredPending().filter(r=>state.selec
 function selectedReadyRecords(){return filteredReady().filter(r=>state.selectedReady.has(r.orderNo));}
 function snapshotProducts(order){return (order?.items||[]).map(x=>({product:x.product||'',variation:x.variation||'',quantity:Number(x.quantity)||0,skuRef:x.skuRef||''}));}
 async function createBatch(kind){
-  if(state.busy)return;const rows=kind==='estimate'?selectedPendingRecords():selectedReadyRecords();if(!rows.length)return;const base=rows.reduce((s,r)=>s+(kind==='estimate'?r.activeEstimate.amount:r.income.amount),0),plan=buildCorrectionPlan(correctionEligibleRecords(),base),batchId=buildBatchId(kind),createdAt=nowIso();
-  const localItems=rows.map(r=>({orderNo:r.orderNo,basis:kind,amount:kind==='estimate'?Number(r.activeEstimate.amount):Number(r.income.amount),orderDate:r.order?.orderDate||r.income?.orderDate||'',releaseDate:r.income?.releaseDate||'',products:snapshotProducts(r.order),estimateSource:kind==='estimate'?r.activeEstimate.source:null}));const note=`Dasar ${money(base)} ${plan.correctionAmount?`+ koreksi ${plan.correctionAmount>0?'+':''}${money(plan.correctionAmount)}`:''} = pencairan ${money(plan.payoutAmount)}.`;if(!confirm(`${kind==='estimate'?'Buat Batch Estimasi':'Buat Batch Final'} ${batchId}?\n\n${note}\n\nBatch adalah snapshot permanen.`))return;
-  const orderRefs=rows.map(r=>doc(db,C.orders,r.orderNo)),incomeRefs=rows.map(r=>doc(db,C.incomes,r.orderNo));const corrRefs=plan.applications.map(a=>({ledger:doc(db,C.ledger,a.orderNo),income:doc(db,C.incomes,a.orderNo),order:doc(db,C.orders,a.orderNo)}));
-  try{state.busy=true;await runTransaction(db,async tx=>{
-      const selectedOrderSnaps=[];for(const ref of orderRefs)selectedOrderSnaps.push(await tx.get(ref));const selectedIncomeSnaps=[];for(const ref of incomeRefs)selectedIncomeSnaps.push(await tx.get(ref));const corrSnaps=[];for(const refs of corrRefs)corrSnaps.push({ledger:await tx.get(refs.ledger),income:await tx.get(refs.income),order:await tx.get(refs.order)});
-      rows.forEach((r,i)=>{const oSnap=selectedOrderSnaps[i],iSnap=selectedIncomeSnaps[i];if(!oSnap.exists())throw new Error(`${r.orderNo}: Order hilang.`);const o=oSnap.data();if(isCancelled(o.status))throw new Error(`${r.orderNo}: status Batal.`);if(o.payoutLock||o.estimateBatchId)throw new Error(`${r.orderNo}: sudah pernah dicairkan.`);
-        if(kind==='estimate'){if(iSnap.exists())throw new Error(`${r.orderNo}: Income final baru saja masuk. Refresh lalu gunakan Final Excel.`);const current=o.pendingEstimate;if(!current||Number(current.amount)<=0||Number(current.amount)!==Number(r.activeEstimate.amount))throw new Error(`${r.orderNo}: estimasi berubah. Refresh terlebih dahulu.`);}else{if(!iSnap.exists())throw new Error(`${r.orderNo}: Income tidak ditemukan.`);const inc=iSnap.data();if(inc.payoutBatchId||inc.batchId)throw new Error(`${r.orderNo}: sudah masuk Batch.`);if(Number(inc.amount)!==Number(r.income.amount))throw new Error(`${r.orderNo}: nominal Income berubah. Refresh.`);}
-      });
-      plan.applications.forEach((a,i)=>{const snaps=corrSnaps[i];if(!snaps.income.exists())throw new Error(`${a.orderNo}: Income koreksi berubah/hilang.`);const currentFinal=Number(snaps.income.data().amount)||0;if(currentFinal!==Number(a.finalAmount))throw new Error(`${a.orderNo}: Final Income koreksi berubah. Refresh.`);const expected=Number(currentAppliedMap().get(a.orderNo)||0),ledgerApplied=snaps.ledger.exists()?Number(snaps.ledger.data()?.appliedAmount)||0:expected;if(Math.round(expected)!==Math.round(ledgerApplied))throw new Error(`${a.orderNo}: ledger koreksi berubah. Buka Pengaturan → Sinkronkan Ledger, lalu refresh.`);});
-      const items=localItems;
-      tx.set(doc(db,C.batches,batchId),{schemaVersion:SCHEMA_VERSION,batchId,createdAt,status:'active',kind,baseAmount:base,correctionAmount:plan.correctionAmount,payoutAmount:plan.payoutAmount,items,corrections:plan.applications,filterSnapshot:kind==='estimate'?{from:$('pendingFrom').value,to:$('pendingTo').value,products:[...state.pendingProducts]}:{from:$('readyFrom').value,to:$('readyTo').value,products:[...state.readyProducts]}});
-      rows.forEach((r,i)=>{if(kind==='estimate')tx.set(orderRefs[i],{payoutLock:{batchId,source:'estimate',amount:Number(r.activeEstimate.amount),paidAt:createdAt,estimateSource:r.activeEstimate.source,estimateSnapshot:r.activeEstimate},lastEstimate:r.activeEstimate},{merge:true});else tx.set(incomeRefs[i],{payoutBatchId:batchId,payoutLockedAt:createdAt},{merge:true});});
-      plan.applications.forEach((a,i)=>{const current=Number(corrSnaps[i].ledger.data()?.appliedAmount)||0;tx.set(corrRefs[i].ledger,{orderNo:a.orderNo,appliedAmount:current+a.appliedAmount,lastBatchId:batchId,updatedAt:createdAt,schemaVersion:SCHEMA_VERSION},{merge:true});});
-    });
+  if(state.busy)return;const rows=kind==='estimate'?selectedPendingRecords():selectedReadyRecords();if(!rows.length)return;
+  const base=rows.reduce((s,r)=>s+(kind==='estimate'?r.activeEstimate.amount:r.income.amount),0),plan=buildCorrectionPlan(correctionEligibleRecords(),base),batchId=buildBatchId(kind),createdAt=nowIso();
+  const localItems=rows.map(r=>({orderNo:r.orderNo,basis:kind,amount:kind==='estimate'?Number(r.activeEstimate.amount):Number(r.income.amount),orderDate:r.order?.orderDate||r.income?.orderDate||'',releaseDate:r.income?.releaseDate||'',products:snapshotProducts(r.order),estimateSource:kind==='estimate'?r.activeEstimate.source:null}));
+  const note=`Dasar ${money(base)} ${plan.correctionAmount?`+ koreksi ${plan.correctionAmount>0?'+':''}${money(plan.correctionAmount)}`:''} = pencairan ${money(plan.payoutAmount)}.`;
+  if(!confirm(`${kind==='estimate'?'Buat Batch Estimasi':'Buat Batch Final'} ${batchId}?
+
+${note}
+
+Batch disimpan lokal dan baru dikirim ke Firebase saat Sinkronkan Sekarang ditekan.`))return;
+  try{
+    state.busy=true;
+    for(const r of rows){
+      const o=state.orders.get(r.orderNo);if(!o)throw new Error(`${r.orderNo}: Order tidak ditemukan di data lokal.`);if(isCancelled(o.status))throw new Error(`${r.orderNo}: status Batal.`);if(o.payoutLock||o.estimateBatchId)throw new Error(`${r.orderNo}: sudah pernah dicairkan.`);
+      if(kind==='estimate'){if(state.incomes.has(r.orderNo))throw new Error(`${r.orderNo}: Final Income sudah ada di data lokal.`);if(!r.activeEstimate||Number(r.activeEstimate.amount)<=0)throw new Error(`${r.orderNo}: estimasi tidak tersedia.`);}
+      else{const inc=state.incomes.get(r.orderNo);if(!inc)throw new Error(`${r.orderNo}: Income final tidak tersedia.`);if(inc.payoutBatchId||inc.batchId)throw new Error(`${r.orderNo}: sudah masuk Batch.`);}
+    }
     const batchDoc={schemaVersion:SCHEMA_VERSION,batchId,createdAt,status:'active',kind,baseAmount:base,correctionAmount:plan.correctionAmount,payoutAmount:plan.payoutAmount,items:localItems,corrections:plan.applications,filterSnapshot:kind==='estimate'?{from:$('pendingFrom').value,to:$('pendingTo').value,products:[...state.pendingProducts]}:{from:$('readyFrom').value,to:$('readyTo').value,products:[...state.readyProducts]}};
-    state.batches.push(normalizeBatch(batchDoc,batchId));
+    state.batches.push(normalizeBatch(batchDoc,batchId));markDirty('batches',batchId);
     rows.forEach(r=>{
       if(kind==='estimate'){
-        const prev=state.rawOrders.get(r.orderNo)||{orderNo:r.orderNo};
-        state.rawOrders.set(r.orderNo,{...prev,payoutLock:{batchId,source:'estimate',amount:Number(r.activeEstimate.amount),paidAt:createdAt,estimateSource:r.activeEstimate.source,estimateSnapshot:r.activeEstimate},lastEstimate:r.activeEstimate});
+        const prev=state.rawOrders.get(r.orderNo)||{orderNo:r.orderNo};state.rawOrders.set(r.orderNo,{...prev,payoutLock:{batchId,source:'estimate',amount:Number(r.activeEstimate.amount),paidAt:createdAt,estimateSource:r.activeEstimate.source,estimateSnapshot:r.activeEstimate},lastEstimate:r.activeEstimate});markDirty('orders',r.orderNo);
       }else{
-        const prev=state.rawIncomes.get(r.orderNo)||{orderNo:r.orderNo};
-        state.rawIncomes.set(r.orderNo,{...prev,payoutBatchId:batchId,payoutLockedAt:createdAt});
+        const prev=state.rawIncomes.get(r.orderNo)||{orderNo:r.orderNo};state.rawIncomes.set(r.orderNo,{...prev,payoutBatchId:batchId,payoutLockedAt:createdAt});markDirty('incomes',r.orderNo);
       }
     });
-    plan.applications.forEach(a=>state.ledger.set(a.orderNo,{orderNo:a.orderNo,appliedAmount:Number(currentAppliedMap().get(a.orderNo)||0),lastBatchId:batchId,updatedAt:createdAt}));
+    rebuildState({render:false,save:false});
+    plan.applications.forEach(a=>{const row={orderNo:a.orderNo,appliedAmount:Number(currentAppliedMap().get(a.orderNo)||0),lastBatchId:batchId,updatedAt:createdAt,schemaVersion:SCHEMA_VERSION};state.ledger.set(a.orderNo,row);markDirty('ledger',a.orderNo);});
     await logUpload({kind:`Batch ${kind==='estimate'?'Estimasi':'Final'}`,fileName:batchId,rows:rows.length,summary:note});
-    state.selectedPending.clear();state.selectedReady.clear();rebuildState({render:true,save:true});flash(`${batchId} berhasil dibuat. Total pencairan ${money(plan.payoutAmount)}.`,'success');
-  }catch(e){flash(`${e.message} Data lokal tidak di-reload otomatis agar hemat quota; tekan Refresh hanya jika perlu. `,'error');}finally{state.busy=false;}
+    state.selectedPending.clear();state.selectedReady.clear();rebuildState({render:true,save:true});flash(`${batchId} dibuat lokal. Total ${money(plan.payoutAmount)} · belum disinkronkan ke Firebase.`,'success');
+  }catch(e){flash(e.message,'error');}finally{state.busy=false;renderSettings();}
 }
 
 function openBatchDetail(batchId){const b=state.batches.find(x=>x.batchId===batchId);if(!b)return;$('batchDetailTitle').textContent=b.batchId;$('batchDetailMeta').textContent=`${dt(b.createdAt)} · ${b.kind}`;const payout=b.payoutAmount||b.baseAmount+b.correctionAmount;$('batchDetailBody').innerHTML=`<div class="batch-detail-summary"><div><span>Dasar</span><strong>${money(b.baseAmount)}</strong></div><div><span>Koreksi</span><strong>${b.correctionAmount>0?'+':''}${money(b.correctionAmount)}</strong></div><div><span>Total Pencairan</span><strong>${money(payout)}</strong></div><div><span>Pesanan</span><strong>${b.items.length}</strong></div></div><h3>Pesanan</h3><div class="table-wrap"><table><thead><tr><th>No. Pesanan</th><th>Basis</th><th>Produk</th><th class="num">Snapshot</th></tr></thead><tbody>${b.items.map(i=>`<tr><td><b>${esc(i.orderNo)}</b></td><td><span class="badge ${i.basis==='estimate'?'estimate':'final'}">${esc(i.basis)}</span></td><td>${(i.products||[]).map(p=>`${esc(p.product||'-')} ${p.variation?`· ${esc(p.variation)}`:''}`).join('<br>')}</td><td class="num"><b>${money(i.amount)}</b></td></tr>`).join('')}</tbody></table></div>${b.corrections.length?`<h3>Koreksi yang diterapkan</h3><div class="table-wrap"><table><thead><tr><th>No. Pesanan</th><th class="num">Diterapkan</th></tr></thead><tbody>${b.corrections.map(c=>`<tr><td>${esc(c.orderNo)}</td><td class="num"><b class="${c.appliedAmount>0?'money-positive':'money-negative'}">${c.appliedAmount>0?'+':''}${money(c.appliedAmount)}</b></td></tr>`).join('')}</tbody></table></div>`:''}`;$('batchDetailDialog').showModal();}
@@ -503,25 +522,10 @@ function exportReport(){const rows=filteredReport().map(r=>{const est=estimateFo
 function exportBatches(){const rows=[];for(const b of state.batches){for(const i of b.items)rows.push({'Batch':b.batchId,'Waktu':b.createdAt,'Jenis':b.kind,'Jenis Baris':'Pesanan','No. Pesanan':i.orderNo,'Basis':i.basis,'Nominal':i.amount,'Koreksi':'','Total Pencairan':b.payoutAmount||b.baseAmount+b.correctionAmount});for(const c of b.corrections)rows.push({'Batch':b.batchId,'Waktu':b.createdAt,'Jenis':b.kind,'Jenis Baris':'Koreksi','No. Pesanan':c.orderNo,'Basis':'koreksi','Nominal':'','Koreksi':c.appliedAmount,'Total Pencairan':b.payoutAmount||b.baseAmount+b.correctionAmount});}downloadXlsx(rows,`Riwayat_Batch_${today()}.xlsx`,'Batch');}
 function downloadXlsx(rows,filename,sheet){if(!rows.length){flash('Tidak ada data untuk diexport.','error');return;}const ws=XLSX.utils.json_to_sheet(rows),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,sheet);XLSX.writeFile(wb,filename);}
 
-async function resetDatabase(){if($('resetPhrase').value!=='HAPUS SEMUA'){setMessage('settingsMessage','Ketik persis HAPUS SEMUA untuk mengaktifkan reset.','warning');return;}if(!confirm('Semua Master Order, Income, Batch, Upload Log, dan Ledger akan dihapus permanen. Lanjutkan?'))return;const cols=[C.orders,C.incomes,C.batches,C.uploads,C.ledger,'anomalies','edits'];try{state.busy=true;for(const name of cols){const snap=await getDocs(collection(db,name));const refs=snap.docs.map(d=>d.ref);for(let i=0;i<refs.length;i+=400){const wb=writeBatch(db);refs.slice(i,i+400).forEach(r=>wb.delete(r));await wb.commit();}}$('resetPhrase').value='';state.rawOrders.clear();state.rawIncomes.clear();state.orders.clear();state.incomes.clear();state.batches=[];state.uploads=[];state.ledger.clear();clearCache();rebuildState({render:true,save:false});setMessage('settingsMessage','Database aplikasi sudah kosong.','success');}catch(e){setMessage('settingsMessage',esc(e.message),'warning');}finally{state.busy=false;}}
-
-const titles={dashboard:['Dashboard','Ringkasan master terbaru.'],upload:['Upload Excel','Order dan Income Excel Shopee.'],report:['Laporan Gabungan','Estimasi, final, pencairan, dan koreksi dalam satu laporan.'],pending:['Pending Pembayaran','Estimasi sementara sebelum Income Excel tersedia.'],cancelled:['Pesanan Batal','Dipisahkan dari alur pencairan.'],ready:['Siap Dicairkan','Murni pembayaran final dari Income Excel.'],history:['Riwayat Batch','Snapshot pencairan permanen.'],recon:['Rekonsiliasi','Periksa klop antara Final Excel dan pencairan nyata.'],settings:['Pengaturan','Status sistem dan tindakan administratif.']};
-function switchView(view){$$('.view').forEach(v=>v.classList.toggle('active',v.id===`view-${view}`));$$('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));$('pageTitle').textContent=titles[view]?.[0]||view;$('pageSub').textContent=titles[view]?.[1]||'';closeDrawer();if(view==='report')renderReport();if(view==='pending')renderPending();if(view==='ready')renderReady();if(view==='recon')renderRecon();}
-function openDrawer(){$('sidebar').classList.add('open');$('drawerBackdrop').hidden=false;}function closeDrawer(){$('sidebar').classList.remove('open');$('drawerBackdrop').hidden=true;}
-
-function bind(){
-  $('loginForm').addEventListener('submit',async e=>{e.preventDefault();setMessage('loginMessage','Memeriksa akun...','info');try{const cred=await signInWithEmailAndPassword(auth,$('loginEmail').value.trim(),$('loginPassword').value);if(cred.user.uid!==ADMIN_UID){await signOut(auth);throw new Error('Akun ini bukan admin aplikasi.');}}catch(err){setMessage('loginMessage',esc(err.message),'warning');}});
-  $('logoutBtn').addEventListener('click',()=>signOut(auth));$('refreshBtn').addEventListener('click',()=>{if(state.busy)return;state.busy=true;$('firebaseStatus').textContent='Sinkronisasi server...';loadAll().then(()=>{flash('Data server diperbarui.','success');$('firebaseStatus').textContent='Terhubung · cache aktif';}).catch(e=>{flash(e.message,'error');$('firebaseStatus').textContent='Cache lokal · server gagal';}).finally(()=>{state.busy=false;});});
-  $$('[data-view]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));$('drawerOpen').addEventListener('click',openDrawer);$('drawerClose').addEventListener('click',closeDrawer);$('drawerBackdrop').addEventListener('click',closeDrawer);$('bottomMore').addEventListener('click',openDrawer);
-  $('orderFile').addEventListener('change',e=>$('orderFileName').textContent=e.target.files[0]?.name||'Belum dipilih');$('incomeFile').addEventListener('change',e=>$('incomeFileName').textContent=e.target.files[0]?.name||'Belum dipilih');
-  $('clearExcelBtn').addEventListener('click',()=>{$('orderFile').value='';$('incomeFile').value='';$('orderFileName').textContent='Belum dipilih';$('incomeFileName').textContent='Belum dipilih';});
-  $('importExcelBtn').addEventListener('click',async()=>{const of=$('orderFile').files[0],inf=$('incomeFile').files[0];if(!of&&!inf){setMessage('excelMessage','Pilih minimal satu file Excel.','warning');return;}try{state.busy=true;setMessage('excelMessage','Memproses Excel...','info');let parts=[];if(of){const r=await importOrderExcel(of);parts.push(`Order: ${r.rows} pesanan`);}if(inf){const r=await importIncomeExcel(inf);parts.push(`Income: ${r.rows} final, ${r.cleared} estimasi dibersihkan`);}rebuildState({render:true,save:true});setMessage('excelMessage',`${parts.join(' · ')}. Master diperbarui tanpa membaca ulang seluruh Firebase.`,'success');}catch(e){setMessage('excelMessage',esc(e.message),'warning');}finally{state.busy=false;}});
-  $('pendingHtmlFile').addEventListener('change',e=>{$('importHtmlBtn').disabled=!e.target.files[0];if(e.target.files[0])setMessage('htmlMessage',`Siap import: <b>${esc(e.target.files[0].name)}</b>`,'info');});
-  $('importHtmlBtn').addEventListener('click',async()=>{const f=$('pendingHtmlFile').files[0];if(!f)return;try{state.busy=true;const r=await importPendingHtml(f);setMessage('htmlMessage',`HTML snapshot dibaca ${r.rows} order: <b>${r.matched} cocok</b>, <b>${r.clearedOldHtml} estimasi HTML lama dibersihkan</b>, ${r.skippedFinal} diabaikan karena Final Excel sudah ada, ${r.skippedLocked} sudah dicairkan estimasi, ${r.unmatched} tidak ada di Master Order, <b>${r.pendingMissingItems.length} Pending Master tidak ada di HTML terbaru</b>. Total nominal file HTML ${money(r.total)}.`,'success');renderHtmlReconciliation(r);}catch(e){setMessage('htmlMessage',esc(e.message),'warning');const x=$('htmlReconcile');if(x)x.hidden=true;}finally{state.busy=false;}});
-  ['reportFrom','reportTo','reportSearch'].forEach(x=>$(x).addEventListener('input',renderReport));$('reportDateMode').addEventListener('change',()=>{configureReportDateMode();renderReport();});$('reportSearchMode').addEventListener('change',()=>{const input=$('reportSearch');input.value='';configureReportSearch();renderReport();});$('reportReset').addEventListener('click',()=>{$('reportDateMode').value='order';$('reportFrom').value='';$('reportTo').value='';$('reportSearchMode').value='all';$('reportSearch').value='';state.reportProducts.clear();state.reportOrderStatuses.clear();configureReportDateMode();configureReportSearch();renderReport();});$('exportReportBtn').addEventListener('click',exportReport);
-  ['pendingFrom','pendingTo','pendingSearch'].forEach(x=>$(x).addEventListener('input',renderPending));$('pendingReset').addEventListener('click',()=>{$('pendingFrom').value='';$('pendingTo').value='';$('pendingSearch').value='';state.pendingProducts.clear();state.selectedPending.clear();renderPending();});$('pendingSelectAll').addEventListener('change',e=>{const rows=filteredPending().filter(r=>r.state==='pendingEstimated');rows.forEach(r=>e.target.checked?state.selectedPending.add(r.orderNo):state.selectedPending.delete(r.orderNo));renderPending();});$('createEstimateBatchBtn').addEventListener('click',()=>createBatch('estimate'));
-  ['readyFrom','readyTo','readySearch'].forEach(x=>$(x).addEventListener('input',renderReady));$('readyReset').addEventListener('click',()=>{$('readyFrom').value='';$('readyTo').value='';$('readySearch').value='';state.readyProducts.clear();state.selectedReady.clear();renderReady();});$('readySelectAll').addEventListener('change',e=>{filteredReady().forEach(r=>e.target.checked?state.selectedReady.add(r.orderNo):state.selectedReady.delete(r.orderNo));renderReady();});$('createFinalBatchBtn').addEventListener('click',()=>createBatch('final'));
-  $('saveEstimateBtn').addEventListener('click',saveManualEstimate);$('exportBatchBtn').addEventListener('click',exportBatches);$('syncLedgerBtn').addEventListener('click',()=>syncCorrectionLedger(true).catch(e=>flash(e.message,'error')));$('resetDbBtn').addEventListener('click',resetDatabase);
+async function resetDatabase(){
+  if($('resetPhrase').value!=='HAPUS SEMUA'){setMessage('settingsMessage','Ketik persis HAPUS SEMUA untuk mengaktifkan reset.','warning');return;}
+  if(!confirm('Kosongkan seluruh data LOKAL aplikasi? Firebase belum akan berubah sampai tombol Sinkronkan Sekarang ditekan.'))return;
+  state.rawOrders.clear();state.rawIncomes.clear();state.orders.clear();state.incomes.clear();state.batches=[];state.uploads=[];state.ledger.clear();DIRTY_KINDS.forEach(k=>state.dirty[k].clear());state.pendingFullReset=true;$('resetPhrase').value='';rebuildState({render:true,save:true});setMessage('settingsMessage','Data lokal sudah kosong. Reset Firebase masih TERTUNDA sampai Sinkronkan Sekarang ditekan.','warning');
 }
 
 bind();
@@ -529,11 +533,7 @@ onAuthStateChanged(auth,async user=>{
   if(user&&user.uid===ADMIN_UID){
     $('authGate').hidden=true;$('appShell').hidden=false;$('accountEmail').textContent=user.email||user.uid;
     const cached=loadCache();
-    if(cached){$('firebaseStatus').textContent='Cache lokal · hemat quota';renderAll();flash('Data dibuka dari cache lokal. Tekan Refresh hanya jika perlu sinkronisasi dari Firebase.','success');}
-    else{
-      $('firebaseStatus').textContent='Sinkronisasi awal...';
-      try{await loadAll();$('firebaseStatus').textContent='Terhubung · cache aktif';}
-      catch(e){$('firebaseStatus').textContent='Server gagal · belum ada cache';flash(e.message,'error');renderAll();}
-    }
+    if(cached){$('firebaseStatus').textContent=dirtyCount()?`Lokal · ${dirtyCount()} belum sinkron`:'Lokal · tersimpan';renderAll();flash('Data dibuka dari penyimpanan lokal. Firebase hanya digunakan saat Sinkronkan Sekarang ditekan.','success');}
+    else{$('firebaseStatus').textContent='Lokal kosong · belum sinkron';renderAll();flash('Belum ada data lokal. Buka Pengaturan → Sinkronkan Sekarang untuk mengambil data Firebase, atau upload Excel untuk mulai lokal.','success');}
   }else{$('authGate').hidden=false;$('appShell').hidden=true;if(user)await signOut(auth);}
 });

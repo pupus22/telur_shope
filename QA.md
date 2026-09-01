@@ -1,8 +1,12 @@
-# QA v2.0.9
+# QA v2.1.0
 
-- [x] HTML snapshot tetap mengganti estimasi HTML aktif lama.
-- [x] Detail Tidak ada di Master menampilkan No. Pesanan + nominal.
-- [x] Detail Pending Master tidak ada di HTML terbaru menampilkan No. Pesanan + status.
-- [x] Final Excel / Batch tetap tidak ditimpa HTML.
-- [x] Estimasi manual tidak dihapus oleh cleanup snapshot.
-- [x] Detail rekonsiliasi tidak disimpan sebagai HTML mentah ke Firebase.
+- Login: Firebase Auth saja; tidak ada Firestore read otomatis.
+- Upload Order Excel: lokal, dirty queue bertambah, pindah halaman data tetap ada.
+- Upload Income Excel: lokal; estimasi aktif order final dibersihkan lokal.
+- Import HTML: snapshot lokal; estimasi HTML lama dibersihkan lokal.
+- Manual estimate: lokal.
+- Batch estimasi/final: snapshot lokal dan dirty queue.
+- Refresh topbar dihapus.
+- Sinkronisasi Firestore hanya tombol Pengaturan.
+- Timestamp sinkron terakhir tampil setelah sukses.
+- Sync gagal: dirty queue dan cache lokal tetap ada.
