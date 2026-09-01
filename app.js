@@ -5,7 +5,7 @@ import {
   APP_VERSION, SCHEMA_VERSION, text, num, isCancelled, safeDateOnly, fileEndDate, compareSourceDate,
   normalizeIncome, normalizeOrder, normalizeBatch, recordsFromMaps, buildPayoutItemMap,
   buildCorrectionAppliedMap, buildCorrectionPlan, historicalEstimate
-} from './core.js?v=2.1.0';
+} from './core.js?v=2.1.1';
 
 const FIREBASE_CONFIG={
   apiKey:'AIzaSyDYc-6mcJK4NgMfjFL4Xyew2hSixYv51As',
@@ -526,6 +526,90 @@ async function resetDatabase(){
   if($('resetPhrase').value!=='HAPUS SEMUA'){setMessage('settingsMessage','Ketik persis HAPUS SEMUA untuk mengaktifkan reset.','warning');return;}
   if(!confirm('Kosongkan seluruh data LOKAL aplikasi? Firebase belum akan berubah sampai tombol Sinkronkan Sekarang ditekan.'))return;
   state.rawOrders.clear();state.rawIncomes.clear();state.orders.clear();state.incomes.clear();state.batches=[];state.uploads=[];state.ledger.clear();DIRTY_KINDS.forEach(k=>state.dirty[k].clear());state.pendingFullReset=true;$('resetPhrase').value='';rebuildState({render:true,save:true});setMessage('settingsMessage','Data lokal sudah kosong. Reset Firebase masih TERTUNDA sampai Sinkronkan Sekarang ditekan.','warning');
+}
+
+
+function bind(){
+  $('loginForm').addEventListener('submit',async e=>{
+    e.preventDefault();
+    setMessage('loginMessage','Memeriksa akun...','info');
+    try{
+      const cred=await signInWithEmailAndPassword(auth,$('loginEmail').value.trim(),$('loginPassword').value);
+      if(cred.user.uid!==ADMIN_UID){
+        await signOut(auth);
+        throw new Error('Akun ini bukan admin aplikasi.');
+      }
+      setMessage('loginMessage','Login berhasil. Membuka data lokal...','success');
+    }catch(err){
+      setMessage('loginMessage',esc(err?.message||String(err)),'warning');
+    }
+  });
+  $('logoutBtn').addEventListener('click',()=>signOut(auth));
+
+  $$('[data-view]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));
+  $('drawerOpen').addEventListener('click',openDrawer);
+  $('drawerClose').addEventListener('click',closeDrawer);
+  $('drawerBackdrop').addEventListener('click',closeDrawer);
+  $('bottomMore').addEventListener('click',openDrawer);
+
+  $('orderFile').addEventListener('change',e=>$('orderFileName').textContent=e.target.files[0]?.name||'Belum dipilih');
+  $('incomeFile').addEventListener('change',e=>$('incomeFileName').textContent=e.target.files[0]?.name||'Belum dipilih');
+  $('clearExcelBtn').addEventListener('click',()=>{
+    $('orderFile').value='';$('incomeFile').value='';
+    $('orderFileName').textContent='Belum dipilih';$('incomeFileName').textContent='Belum dipilih';
+  });
+  $('importExcelBtn').addEventListener('click',async()=>{
+    const of=$('orderFile').files[0],inf=$('incomeFile').files[0];
+    if(!of&&!inf){setMessage('excelMessage','Pilih minimal satu file Excel.','warning');return;}
+    try{
+      state.busy=true;setMessage('excelMessage','Memproses Excel ke penyimpanan lokal...','info');
+      const parts=[];
+      if(of){const r=await importOrderExcel(of);parts.push(`Order: ${r.rows} pesanan`);}
+      if(inf){const r=await importIncomeExcel(inf);parts.push(`Income: ${r.rows} final, ${r.cleared} estimasi dibersihkan`);}
+      rebuildState({render:true,save:true});
+      setMessage('excelMessage',`${parts.join(' · ')}. Disimpan lokal. Firebase belum disentuh; gunakan Pengaturan → Sinkronkan Sekarang bila diperlukan.`,'success');
+    }catch(e){setMessage('excelMessage',esc(e.message),'warning');}
+    finally{state.busy=false;renderSettings();}
+  });
+
+  $('pendingHtmlFile').addEventListener('change',e=>{
+    $('importHtmlBtn').disabled=!e.target.files[0];
+    if(e.target.files[0])setMessage('htmlMessage',`Siap import lokal: <b>${esc(e.target.files[0].name)}</b>`,'info');
+  });
+  $('importHtmlBtn').addEventListener('click',async()=>{
+    const f=$('pendingHtmlFile').files[0];if(!f)return;
+    try{
+      state.busy=true;
+      const r=await importPendingHtml(f);
+      setMessage('htmlMessage',`HTML snapshot dibaca ${r.rows} order: <b>${r.matched} cocok</b>, <b>${r.clearedOldHtml} estimasi HTML lama dibersihkan</b>, ${r.skippedFinal} diabaikan karena Final Excel sudah ada, ${r.skippedLocked} sudah dicairkan estimasi, ${r.unmatched} tidak ada di Master Order, <b>${r.pendingMissingItems.length} Pending Master tidak ada di HTML terbaru</b>. Total nominal file HTML ${money(r.total)}. Semua perubahan masih lokal.`,'success');
+      renderHtmlReconciliation(r);
+    }catch(e){setMessage('htmlMessage',esc(e.message),'warning');const x=$('htmlReconcile');if(x)x.hidden=true;}
+    finally{state.busy=false;renderSettings();}
+  });
+
+  ['reportFrom','reportTo','reportSearch'].forEach(x=>$(x).addEventListener('input',renderReport));
+  $('reportDateMode').addEventListener('change',()=>{configureReportDateMode();renderReport();});
+  $('reportSearchMode').addEventListener('change',()=>{const input=$('reportSearch');input.value='';configureReportSearch();renderReport();});
+  $('reportReset').addEventListener('click',()=>{
+    $('reportDateMode').value='order';$('reportFrom').value='';$('reportTo').value='';$('reportSearchMode').value='all';$('reportSearch').value='';
+    state.reportProducts.clear();state.reportOrderStatuses.clear();configureReportDateMode();configureReportSearch();renderReport();
+  });
+  $('exportReportBtn').addEventListener('click',exportReport);
+
+  ['pendingFrom','pendingTo','pendingSearch'].forEach(x=>$(x).addEventListener('input',renderPending));
+  $('pendingReset').addEventListener('click',()=>{$('pendingFrom').value='';$('pendingTo').value='';$('pendingSearch').value='';state.pendingProducts.clear();state.selectedPending.clear();renderPending();});
+  $('pendingSelectAll').addEventListener('change',e=>{const rows=filteredPending().filter(r=>r.state==='pendingEstimated');rows.forEach(r=>e.target.checked?state.selectedPending.add(r.orderNo):state.selectedPending.delete(r.orderNo));renderPending();});
+  $('createEstimateBatchBtn').addEventListener('click',()=>createBatch('estimate'));
+
+  ['readyFrom','readyTo','readySearch'].forEach(x=>$(x).addEventListener('input',renderReady));
+  $('readyReset').addEventListener('click',()=>{$('readyFrom').value='';$('readyTo').value='';$('readySearch').value='';state.readyProducts.clear();state.selectedReady.clear();renderReady();});
+  $('readySelectAll').addEventListener('change',e=>{filteredReady().forEach(r=>e.target.checked?state.selectedReady.add(r.orderNo):state.selectedReady.delete(r.orderNo));renderReady();});
+  $('createFinalBatchBtn').addEventListener('click',()=>createBatch('final'));
+
+  $('saveEstimateBtn').addEventListener('click',saveManualEstimate);
+  $('exportBatchBtn').addEventListener('click',exportBatches);
+  $('syncNowBtn').addEventListener('click',syncServerNow);
+  $('resetDbBtn').addEventListener('click',resetDatabase);
 }
 
 bind();
