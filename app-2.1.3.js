@@ -2,7 +2,7 @@ import {
   APP_VERSION, SCHEMA_VERSION, text, num, isCancelled, safeDateOnly, fileEndDate, compareSourceDate,
   normalizeIncome, normalizeOrder, normalizeBatch, recordsFromMaps, buildPayoutItemMap,
   buildCorrectionAppliedMap, buildCorrectionPlan, historicalEstimate
-} from './core.js?v=2.1.2';
+} from './core-2.1.3.js';
 
 const ADMIN_UID='ISAloBhuHVQwGKzwVLpOXKMcstn2';
 const C={orders:'orders',incomes:'incomes',batches:'batches',uploads:'uploads',ledger:'correction_ledger'};
@@ -605,7 +605,7 @@ export async function startApp(ctx){
   const user=ctx?.user||auth?.currentUser;
   if(!user||user.uid!==ADMIN_UID)throw new Error('Sesi admin tidak valid.');
   if(!appBound){bind();appBound=true;}
-  $('authGate').hidden=true;$('appShell').hidden=false;$('accountEmail').textContent=user.email||user.uid;
+  $('appShell').hidden=false;$('accountEmail').textContent=user.email||user.uid;
   const cached=loadCache();
   if(cached){$('firebaseStatus').textContent=dirtyCount()?`Lokal · ${dirtyCount()} belum sinkron`:'Lokal · tersimpan';renderAll();flash('Data dibuka dari penyimpanan lokal. Firebase hanya digunakan saat Sinkronkan Sekarang ditekan.','success');}
   else{$('firebaseStatus').textContent='Lokal kosong · belum sinkron';renderAll();flash('Belum ada data lokal. Buka Pengaturan → Sinkronkan Sekarang untuk mengambil data Firebase, atau upload Excel untuk mulai lokal.','success');}

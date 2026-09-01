@@ -1,11 +1,9 @@
-# Shopee Payout Manager v2.1.2
+# Shopee Payout Manager v2.1.3
 
-## Login architecture fix
-- Firebase Authentication dipisahkan ke `auth.js`.
-- `app.js` baru dimuat setelah UID admin lolos.
-- Firestore SDK tidak dimuat saat login; baru dimuat ketika tombol Sinkronkan Sekarang dipakai.
-- Login menampilkan kode error Firebase yang sebenarnya jika gagal.
-- Persistence Auth dipaksa `browserLocalPersistence`.
-- Local-first/manual-sync tetap dipertahankan.
+Perubahan utama: login dipisahkan menjadi `login.html`.
 
-Deploy: index.html, auth.js, app.js, core.js, styles.css.
+- `login.html` + `login-2.1.3.js`: hanya Firebase Authentication.
+- `index.html` + `bootstrap-2.1.3.js`: cek sesi admin lalu baru memuat aplikasi.
+- `app-2.1.3.js` + `core-2.1.3.js`: aplikasi utama.
+- Firestore tetap hanya digunakan ketika tombol Sinkronkan Sekarang ditekan.
+- Nama file versi dibuat unik agar cache GitHub Pages/browser tidak memuat JS lama.

@@ -1,12 +1,8 @@
-# QA v2.1.2
+# QA v2.1.3
 
-- auth.js syntax: checked
-- app.js syntax: checked
-- core.js syntax: checked
-- Login button/form IDs: checked
-- Login separated from Firestore: checked
-- Firestore only dynamic-imported through manual sync path: checked
-- Admin UID unchanged: checked
-- Firebase config unchanged: checked
-- app.js loaded only after authorized Auth state: checked
-- Local cache survives page navigation/reload: unchanged
+- Login page terpisah dari aplikasi.
+- Login tidak mengimpor app/core/Firestore/XLSX.
+- index redirect ke login jika tidak ada sesi.
+- UID selain admin ditolak.
+- app/core menggunakan nama file unik v2.1.3 untuk mencegah stale cache.
+- Data localStorage lama tetap berada pada origin yang sama dan tetap dapat dibaca aplikasi.
