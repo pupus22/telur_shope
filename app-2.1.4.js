@@ -2,7 +2,7 @@ import {
   APP_VERSION, SCHEMA_VERSION, text, num, isCancelled, safeDateOnly, fileEndDate, compareSourceDate,
   normalizeIncome, normalizeOrder, normalizeBatch, recordsFromMaps, buildPayoutItemMap,
   buildCorrectionAppliedMap, buildCorrectionPlan, historicalEstimate
-} from './core-2.1.3.js';
+} from './core-2.1.4.js';
 
 const ADMIN_UID='ISAloBhuHVQwGKzwVLpOXKMcstn2';
 const C={orders:'orders',incomes:'incomes',batches:'batches',uploads:'uploads',ledger:'correction_ledger'};
@@ -143,7 +143,7 @@ const DIRTY_KINDS=['orders','incomes','batches','uploads','ledger'];
 function dirtyCount(){return DIRTY_KINDS.reduce((n,k)=>n+state.dirty[k].size,0)+(state.pendingFullReset?1:0);}
 function markDirty(kind,id){if(state.dirty[kind]&&id)state.dirty[kind].add(id);}
 function clearDirty(){DIRTY_KINDS.forEach(k=>state.dirty[k].clear());state.pendingFullReset=false;}
-function dirtySnapshot(){return Object.fromEntries(DIRTY_KINDS.map(k=>[k,[...state.dirty[k]]));}
+function dirtySnapshot(){return Object.fromEntries(DIRTY_KINDS.map(k=>[k,[...state.dirty[k]]]));}
 function restoreDirty(d){DIRTY_KINDS.forEach(k=>state.dirty[k]=new Set(Array.isArray(d?.[k])?d[k]:[]));}
 function rebuildState({render=true,save=true}={}){
   state.incomes=new Map([...state.rawIncomes].map(([k,v])=>[k,normalizeIncome(v,k)]));
@@ -529,6 +529,11 @@ async function resetDatabase(){
   state.rawOrders.clear();state.rawIncomes.clear();state.orders.clear();state.incomes.clear();state.batches=[];state.uploads=[];state.ledger.clear();DIRTY_KINDS.forEach(k=>state.dirty[k].clear());state.pendingFullReset=true;$('resetPhrase').value='';rebuildState({render:true,save:true});setMessage('settingsMessage','Data lokal sudah kosong. Reset Firebase masih TERTUNDA sampai Sinkronkan Sekarang ditekan.','warning');
 }
 
+
+const titles={dashboard:['Dashboard','Ringkasan master terbaru.'],upload:['Upload Excel','Order dan Income Excel Shopee.'],report:['Laporan Gabungan','Estimasi, final, pencairan, dan koreksi dalam satu laporan.'],pending:['Pending Pembayaran','Estimasi sementara sebelum Income Excel tersedia.'],cancelled:['Pesanan Batal','Dipisahkan dari alur pencairan.'],ready:['Siap Dicairkan','Murni pembayaran final dari Income Excel.'],history:['Riwayat Batch','Snapshot pencairan permanen.'],recon:['Rekonsiliasi','Periksa klop antara Final Excel dan pencairan nyata.'],settings:['Pengaturan','Status sistem dan tindakan administratif.']};
+function switchView(view){$$('.view').forEach(v=>v.classList.toggle('active',v.id===`view-${view}`));$$('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));$('pageTitle').textContent=titles[view]?.[0]||view;$('pageSub').textContent=titles[view]?.[1]||'';closeDrawer();if(view==='report')renderReport();if(view==='pending')renderPending();if(view==='ready')renderReady();if(view==='recon')renderRecon();}
+function openDrawer(){$('sidebar').classList.add('open');$('drawerBackdrop').hidden=false;}
+function closeDrawer(){$('sidebar').classList.remove('open');$('drawerBackdrop').hidden=true;}
 
 function bind(){
   $('logoutBtn').addEventListener('click',()=>authSignOut?.(auth));

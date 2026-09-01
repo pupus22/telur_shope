@@ -32,3 +32,4 @@
 
 /* v2.1.0 local-first manual sync */
 .local-pill{display:inline-flex;align-items:center;padding:6px 10px;border:1px solid #b7e4c7;border-radius:999px;background:#ecfdf3;color:#166534;font-size:11px;font-weight:800;letter-spacing:.04em}.sync-card .sync-now{width:100%;margin-top:14px;min-height:46px;font-size:15px}.sync-card .status-list strong{overflow-wrap:anywhere}@media(max-width:720px){.local-pill{display:none}.sync-card .sync-now{position:static;width:100%}}
+.boot-detail{margin-top:10px;text-align:left}.boot-detail summary{cursor:pointer;font-weight:700}.boot-detail pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;line-height:1.45;margin:8px 0 0}

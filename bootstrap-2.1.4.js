@@ -42,7 +42,7 @@ try{
     launched=true;
     try{
       bootMessage('Sesi valid. Memuat aplikasi lokal...','success');
-      const mod=await import('./app-2.1.3.js');
+      const mod=await import('./app-2.1.4.js');
       await mod.startApp({firebaseApp,auth,user,signOut});
       $('bootGate').hidden=true;
       $('appShell').hidden=false;
@@ -51,7 +51,8 @@ try{
       console.error('APP_BOOT_ERROR',err);
       $('appShell').hidden=true;
       $('bootGate').hidden=false;
-      bootMessage(`Login berhasil, tetapi aplikasi gagal dimuat.<br><b>${esc(err?.message||String(err))}</b><br><small>Ini bukan error password/Auth. File aplikasi perlu diperiksa.</small>`,'warning',true);
+      const detail=esc(err?.stack||'');
+      bootMessage(`Login berhasil, tetapi aplikasi gagal dimuat.<br><b>${esc(err?.message||String(err))}</b><br><small>Ini bukan error password/Auth.</small>${detail?`<details class="boot-detail"><summary>Detail teknis</summary><pre>${detail}</pre></details>`:''}`,'warning',true);
     }
   });
 }catch(err){
