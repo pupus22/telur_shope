@@ -1,8 +1,18 @@
-# Shopee Payout Manager v2.0.6
+# Shopee Payout Manager v2.0.7 — Free-tier Mode
 
-Perubahan Laporan Gabungan:
-- Mode tanggal: Order (Tanggal Order), Final Income (Tanggal Dana Dilepas), Final + Estimasi Aktif (Tanggal Order).
-- Status Order menjadi checkbox multi-select dinamis dari Excel Order.
-- Filter produk tetap multi-select tanpa scroll internal.
-- Untuk laporan pengiriman: pilih Order · Tanggal Order, tentukan range, lalu centang status pengiriman yang diinginkan (mis. Telah Dikirim).
-- Excel tetap sumber final; estimasi hanya aktif sebelum Income tersedia.
+Versi ini mengurangi pemakaian Firestore agar cocok untuk paket gratis.
+
+Perubahan utama:
+- Login memakai cache lokal bila tersedia, tanpa membaca ulang seluruh Firestore.
+- Full server read hanya saat cache belum pernah dibuat atau tombol Refresh ditekan.
+- Upload Order/Income Excel memperbarui state lokal setelah write, tanpa `loadAll()`.
+- Baris Order/Income yang isinya tidak berubah tidak ditulis ulang ke Firestore.
+- Import HTML Pending memakai state lokal + batched writes, tanpa membaca 2 dokumen per order.
+- Estimasi HTML yang sama persis tidak ditulis ulang.
+- Edit estimasi manual tidak full reload.
+- Selesai membuat Batch tidak full reload; snapshot langsung masuk state lokal.
+- Riwayat upload dari server dibatasi 30 terbaru.
+- Collection correction ledger tidak dibaca massal saat login.
+- Cleanup estimasi tidak dijalankan setiap Refresh; Income upload tetap menghapus estimasi aktif berdasarkan No. Pesanan.
+
+Deploy: index.html, app.js, core.js, styles.css.

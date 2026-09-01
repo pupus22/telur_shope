@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#0f172a">
   <title>Shopee Payout Manager · Clean Rebuild</title>
-  <link rel="stylesheet" href="./styles.css?v=2.0.6.1">
+  <link rel="stylesheet" href="./styles.css?v=2.0.7">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -50,7 +50,7 @@
       <header class="topbar">
         <button id="drawerOpen" class="icon-btn mobile-only" type="button">☰</button>
         <div><h1 id="pageTitle">Dashboard</h1><p id="pageSub">Ringkasan master terbaru.</p></div>
-        <div class="topbar-right"><span class="version-pill">v2.0.6.1</span><button id="refreshBtn" class="btn ghost" type="button">Refresh</button></div>
+        <div class="topbar-right"><span class="version-pill">v2.0.7</span><button id="refreshBtn" class="btn ghost" type="button">Refresh</button></div>
       </header>
 
       <div id="globalMessage" class="global-message" hidden></div>
@@ -140,7 +140,7 @@
 
       <section id="view-settings" class="view">
         <div class="grid-2">
-          <article class="card"><div class="card-head"><div><h2>Status Sistem</h2></div></div><div class="status-list"><div><span>Versi</span><strong>2.0.6.1</strong></div><div><span>Schema</span><strong>v2</strong></div><div><span>Firebase</span><strong id="settingsFirebase">-</strong></div><div><span>Admin UID</span><strong>terkunci</strong></div></div><button id="syncLedgerBtn" class="btn ghost" type="button">Sinkronkan Ledger Koreksi</button></article>
+          <article class="card"><div class="card-head"><div><h2>Status Sistem</h2></div></div><div class="status-list"><div><span>Versi</span><strong>2.0.7</strong></div><div><span>Schema</span><strong>v2</strong></div><div><span>Firebase</span><strong id="settingsFirebase">-</strong></div><div><span>Cache Lokal</span><strong id="settingsCache">-</strong></div><div><span>Sinkronisasi Server Terakhir</span><strong id="settingsLastSync">-</strong></div><div><span>Mode</span><strong>Free-tier hemat read</strong></div><div><span>Admin UID</span><strong>terkunci</strong></div></div><div class="message info"><b>Mode hemat:</b> aplikasi membuka cache lokal saat login. Firebase dibaca penuh hanya saat cache belum ada atau tombol Refresh ditekan.</div><button id="syncLedgerBtn" class="btn ghost" type="button">Sinkronkan Ledger Koreksi</button></article>
           <article class="card danger-card"><div class="card-head"><div><h2>Reset Database</h2><p>Hanya untuk mulai benar-benar kosong. Riwayat Batch juga akan terhapus.</p></div></div><label>Ketik <b>HAPUS SEMUA</b><input id="resetPhrase" type="text" autocomplete="off"></label><button id="resetDbBtn" class="btn danger" type="button">Hapus Semua Data Aplikasi</button><div id="settingsMessage" class="message warning">Jangan gunakan reset jika masih membutuhkan riwayat Batch.</div></article>
         </div>
       </section>
@@ -155,6 +155,6 @@
 
   <dialog id="batchDetailDialog" class="modal"><form method="dialog" class="modal-shell"><header><div><h2 id="batchDetailTitle">Detail Batch</h2><p id="batchDetailMeta"></p></div><button class="icon-btn" value="cancel">×</button></header><div class="modal-body" id="batchDetailBody"></div><footer><button class="btn primary" value="cancel">Tutup</button></footer></form></dialog>
 
-  <script type="module" src="./app.js?v=2.0.6.1"></script>
+  <script type="module" src="./app.js?v=2.0.7"></script>
 </body>
 </html>

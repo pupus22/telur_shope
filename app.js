@@ -1,11 +1,11 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';
-import { getFirestore, collection, doc, getDocs, getDoc, setDoc, writeBatch, runTransaction } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
+import { getFirestore, collection, doc, getDocs, setDoc, writeBatch, runTransaction, query, orderBy, limit } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 import {
   APP_VERSION, SCHEMA_VERSION, text, num, isCancelled, safeDateOnly, fileEndDate, compareSourceDate,
   normalizeIncome, normalizeOrder, normalizeBatch, recordsFromMaps, buildPayoutItemMap,
   buildCorrectionAppliedMap, buildCorrectionPlan, historicalEstimate
-} from './core.js?v=2.0.6.1';
+} from './core.js?v=2.0.7';
 
 const FIREBASE_CONFIG={
   apiKey:'AIzaSyDYc-6mcJK4NgMfjFL4Xyew2hSixYv51As',
@@ -22,7 +22,7 @@ const firebaseApp=initializeApp(FIREBASE_CONFIG), auth=getAuth(firebaseApp), db=
 const state={
   rawOrders:new Map(), rawIncomes:new Map(), orders:new Map(), incomes:new Map(), batches:[], uploads:[], ledger:new Map(), records:[],
   selectedPending:new Set(), selectedReady:new Set(), reportProducts:new Set(), reportOrderStatuses:new Set(), pendingProducts:new Set(), readyProducts:new Set(), editingEstimate:null,
-  busy:false
+  busy:false, cacheLoaded:false, lastServerSync:''
 };
 const $=id=>document.getElementById(id);
 const $$=sel=>[...document.querySelectorAll(sel)];
@@ -120,20 +120,52 @@ function duplicatePayoutSet(){return new Set(duplicatePayoutOrders().map(x=>x.or
 function correctionEligibleRecords(){const dup=duplicatePayoutSet();return state.records.filter(r=>!dup.has(r.orderNo));}
 function correctionBalance(){return correctionEligibleRecords().filter(r=>r.state==='paidFinalKnown').reduce((s,r)=>s+Math.round(r.remainingCorrection||0),0);}
 
-async function readCollection(name){assertAdmin();const snap=await getDocs(collection(db,name));return snap.docs.map(d=>({id:d.id,...d.data()}));}
-async function loadAll({syncLedger=true}={}){
-  assertAdmin();
-  const [ro,ri,rb,ru,rl]=await Promise.all([readCollection(C.orders),readCollection(C.incomes),readCollection(C.batches),readCollection(C.uploads),readCollection(C.ledger)]);
-  state.rawOrders=new Map(ro.map(x=>[x.orderNo||x.id,x]));
-  state.rawIncomes=new Map(ri.map(x=>[x.orderNo||x.id,x]));
+const CACHE_KEY='shopee-payout-v2-cache';
+const CACHE_MAX_UPLOADS=30;
+function rebuildState({render=true,save=true}={}){
   state.incomes=new Map([...state.rawIncomes].map(([k,v])=>[k,normalizeIncome(v,k)]));
   state.orders=new Map([...state.rawOrders].map(([k,v])=>[k,normalizeOrder(v,k,state.incomes.has(k))]));
-  state.batches=rb.map(x=>normalizeBatch(x,x.batchId||x.id)).sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
-  state.uploads=ru.sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
-  state.ledger=new Map(rl.map(x=>[x.orderNo||x.id,{...x,orderNo:x.orderNo||x.id,appliedAmount:Number(x.appliedAmount)||0}]));
+  state.batches=(state.batches||[]).map(x=>normalizeBatch(x,x.batchId||x.id)).sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
+  state.uploads=(state.uploads||[]).sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))).slice(0,CACHE_MAX_UPLOADS);
   state.records=recordsFromMaps(state.orders,state.incomes,state.batches);
-  await cleanupFinalAndCancelledEstimates();
-  renderAll();
+  if(save)saveCache();
+  if(render)renderAll();
+}
+function saveCache(){
+  try{
+    const payload={schemaVersion:SCHEMA_VERSION,savedAt:nowIso(),rawOrders:[...state.rawOrders.values()],rawIncomes:[...state.rawIncomes.values()],batches:state.batches,uploads:state.uploads.slice(0,CACHE_MAX_UPLOADS)};
+    localStorage.setItem(CACHE_KEY,JSON.stringify(payload));state.cacheLoaded=true;
+  }catch(e){state.cacheLoaded=false;console.warn('Cache lokal tidak tersimpan:',e);}
+}
+function loadCache(){
+  try{
+    const raw=localStorage.getItem(CACHE_KEY);if(!raw)return false;
+    const c=JSON.parse(raw);if(!c||!Array.isArray(c.rawOrders)||!Array.isArray(c.rawIncomes))return false;
+    state.rawOrders=new Map(c.rawOrders.map(x=>[x.orderNo||x.id,x]));
+    state.rawIncomes=new Map(c.rawIncomes.map(x=>[x.orderNo||x.id,x]));
+    state.batches=Array.isArray(c.batches)?c.batches:[];
+    state.uploads=Array.isArray(c.uploads)?c.uploads.slice(0,CACHE_MAX_UPLOADS):[];
+    state.cacheLoaded=true;state.lastServerSync=c.savedAt||'';
+    rebuildState({render:false,save:false});return true;
+  }catch(e){console.warn('Cache lokal rusak:',e);return false;}
+}
+function clearCache(){try{localStorage.removeItem(CACHE_KEY);}catch{}state.cacheLoaded=false;}
+async function readCollection(name){assertAdmin();const snap=await getDocs(collection(db,name));return snap.docs.map(d=>({id:d.id,...d.data()}));}
+async function readRecentUploads(){
+  assertAdmin();
+  try{
+    const snap=await getDocs(query(collection(db,C.uploads),orderBy('createdAt','desc'),limit(CACHE_MAX_UPLOADS)));
+    return snap.docs.map(d=>({id:d.id,...d.data()}));
+  }catch(e){console.warn('Gagal membaca log terbaru:',e);return [];}
+}
+async function loadAll(){
+  assertAdmin();
+  const [ro,ri,rb,ru]=await Promise.all([readCollection(C.orders),readCollection(C.incomes),readCollection(C.batches),readRecentUploads()]);
+  state.rawOrders=new Map(ro.map(x=>[x.orderNo||x.id,x]));
+  state.rawIncomes=new Map(ri.map(x=>[x.orderNo||x.id,x]));
+  state.batches=rb;state.uploads=ru;state.ledger=new Map();
+  state.lastServerSync=nowIso();
+  rebuildState({render:true,save:true});
 }
 async function ledgerNeedsSync(){
   const derived=currentAppliedMap();const keys=new Set([...derived.keys(),...state.ledger.keys()]);
@@ -268,27 +300,32 @@ function renderRecon(){
   const held=[];state.records.filter(r=>r.state==='incomeOnly').forEach(r=>held.push({title:`${r.orderNo} · Income tanpa Order`,desc:`Final Income ${money(r.income.amount)} ditahan sampai Master Order tersedia.`}));state.records.filter(r=>r.state==='cancelledWithIncome').forEach(r=>held.push({title:`${r.orderNo} · Pesanan Batal memiliki Income`,desc:`Income ${money(r.income.amount)} tidak masuk Siap Dicairkan.`}));state.records.filter(r=>r.state==='orderStatusUnknown').forEach(r=>held.push({title:`${r.orderNo} · Status Order kosong`,desc:'Order ditahan agar tidak masuk Pending/Siap Dicairkan secara salah.'}));state.records.filter(r=>r.state==='incomeNonPositive').forEach(r=>held.push({title:`${r.orderNo} · Final Income tidak positif`,desc:`Nominal ${money(r.income?.amount||0)} ditahan untuk pemeriksaan.`}));duplicatePayoutOrders().forEach(x=>held.push({title:`${x.orderNo} · Terdapat ${x.count} snapshot Batch`,desc:'Kemungkinan data legacy pernah tercatat lebih dari satu pencairan. Periksa Riwayat Batch.'}));
   $('heldList').innerHTML=held.length?held.map(x=>`<div class="anomaly"><b>${esc(x.title)}</b><span>${esc(x.desc)}</span></div>`).join(''):'<div class="empty-state">Tidak ada data ditahan.</div>';
 }
-function renderSettings(){$('settingsFirebase').textContent=auth.currentUser?'Terhubung':'Tidak terhubung';}
+function renderSettings(){$('settingsFirebase').textContent=auth.currentUser?'Terhubung':'Tidak terhubung';const c=$('settingsCache');if(c)c.textContent=state.cacheLoaded?'Aktif':'Belum ada';const ls=$('settingsLastSync');if(ls)ls.textContent=state.lastServerSync?dt(state.lastServerSync):'Belum pernah';}
 function renderAll(){state.records=recordsFromMaps(state.orders,state.incomes,state.batches);renderDashboard();renderUploads();renderReport();renderPending();renderCancelled();renderReady();renderHistory();renderRecon();renderSettings();}
 
 function findHeader(rows,required){for(let i=0;i<Math.min(rows.length,30);i++){const hdr=rows[i].map(x=>text(x));if(required.every(r=>hdr.includes(r)))return i;}return -1;}
 function rowsAsObjects(rows,headerIndex){const headers=rows[headerIndex].map(x=>text(x));return rows.slice(headerIndex+1).map(r=>Object.fromEntries(headers.map((h,i)=>[h,r[i]??''])));}
 async function workbookRows(file){const ab=await file.arrayBuffer(),wb=XLSX.read(ab,{type:'array',cellDates:true});return {wb,sheets:wb.SheetNames.map(n=>({name:n,rows:XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:'',raw:true})}))};}
 function chooseSheet(sheets,required){for(const s of sheets){const hi=findHeader(s.rows,required);if(hi>=0)return {...s,headerIndex:hi};}return null;}
+function sameData(a,b,keys){return keys.every(k=>JSON.stringify(a?.[k]??null)===JSON.stringify(b?.[k]??null));}
 
 async function importOrderExcel(file){
   const {sheets}=await workbookRows(file),sheet=chooseSheet(sheets,['No. Pesanan','Nama Produk','Status Pesanan']);if(!sheet)throw new Error('Header Order Excel tidak ditemukan. Pastikan file export Order Shopee.');
   const objs=rowsAsObjects(sheet.rows,sheet.headerIndex),groups=new Map();for(const r of objs){const orderNo=text(r['No. Pesanan']);if(!orderNo)continue;if(!groups.has(orderNo))groups.set(orderNo,[]);groups.get(orderNo).push(r);}
-  const sourceEnd=fileEndDate(file.name),timestamp=nowIso();let inserted=0,updated=0,stale=0;const payload=[];
+  const sourceEnd=fileEndDate(file.name),timestamp=nowIso();let inserted=0,updated=0,stale=0,unchanged=0;const payload=[];
   for(const [orderNo,lines] of groups){const old=state.orders.get(orderNo);if(old?.orderSourceEndDate&&sourceEnd&&compareSourceDate(sourceEnd,old.orderSourceEndDate)<0){stale++;continue;}
     const first=lines[0],status=text(first['Status Pesanan']),cancelReason=text(first['Alasan Pembatalan']);const occurrence=new Map();
     const items=lines.map((r,idx)=>{const product=text(r['Nama Produk']),variation=text(r['Nama Variasi']),skuRef=text(r['Nomor Referensi SKU']),sig=`${skuRef}|${product}|${variation}`;occurrence.set(sig,(occurrence.get(sig)||0)+1);return {key:`${sig}|${occurrence.get(sig)}`,product,variation,skuRef,quantity:num(r['Jumlah']),subtotal:num(r['Subtotal Pesanan']),productCount:num(r['Jumlah Produk di Pesan'])};});
     const data={schemaVersion:SCHEMA_VERSION,orderNo,status,cancelReason,orderDate:safeDateOnly(first['Waktu Pesanan Dibuat']),orderDateTime:text(first['Waktu Pesanan Dibuat']),items,orderSourceFile:file.name,orderSourceEndDate:sourceEnd,orderImportedAt:timestamp};
     if(isCancelled(status)){if(old?.pendingEstimate)data.lastEstimate=old.pendingEstimate;data.pendingEstimate=null;data.shopeePendingAmount=0;data.shopeePendingStatus='';data.shopeePendingReleaseEstimate='';data.shopeePendingPaymentMethod='';data.shopeePendingSourceFile='';}
+    const rawOld=state.rawOrders.get(orderNo),needsCleanup=isCancelled(status)&&!!(rawOld?.pendingEstimate||Number(rawOld?.shopeePendingAmount)>0);
+    if(old&&!needsCleanup&&sameData(old,data,['status','cancelReason','orderDate','orderDateTime','items'])){unchanged++;continue;}
     payload.push({orderNo,data});old?updated++:inserted++;
   }
   for(let i=0;i<payload.length;i+=350){const wb=writeBatch(db);payload.slice(i,i+350).forEach(x=>wb.set(doc(db,C.orders,x.orderNo),x.data,{merge:true}));await wb.commit();}
-  await logUpload({kind:'Order Excel',fileName:file.name,rows:groups.size,summary:`${inserted} baru, ${updated} update, ${stale} dilewati karena file lebih lama`});return {rows:groups.size,inserted,updated,stale};
+  for(const x of payload){const prev=state.rawOrders.get(x.orderNo)||{orderNo:x.orderNo};state.rawOrders.set(x.orderNo,{...prev,...x.data});}
+  rebuildState({render:false,save:false});
+  await logUpload({kind:'Order Excel',fileName:file.name,rows:groups.size,summary:`${inserted} baru, ${updated} berubah, ${unchanged} tidak berubah, ${stale} dilewati karena file lebih lama`});return {rows:groups.size,inserted,updated,unchanged,stale};
 }
 
 async function importIncomeExcel(file){
@@ -296,33 +333,59 @@ async function importIncomeExcel(file){
   const objs=rowsAsObjects(sheet.rows,sheet.headerIndex),orderRowsRaw=objs.filter(r=>text(r['Lihat berdasarkan']).toLowerCase()==='order'&&text(r['No. Pesanan'])),skuRows=objs.filter(r=>text(r['Lihat berdasarkan']).toLowerCase()==='sku'&&text(r['No. Pesanan']));
   const orderRowMap=new Map();for(const r of orderRowsRaw)orderRowMap.set(text(r['No. Pesanan']),r);const orderRows=[...orderRowMap.values()];
   const skuMap=new Map();for(const r of skuRows){const no=text(r['No. Pesanan']);if(!skuMap.has(no))skuMap.set(no,[]);skuMap.get(no).push({productId:text(r['ID Produk']),product:text(r['Nama Produk']),amount:num(r['Total Penghasilan'])});}
-  const sourceEnd=fileEndDate(file.name),timestamp=nowIso();let inserted=0,updated=0,stale=0,cleared=0;const incomePayload=[],orderUpdates=[];
+  const sourceEnd=fileEndDate(file.name),timestamp=nowIso();let inserted=0,updated=0,stale=0,cleared=0,unchanged=0;const incomePayload=[],orderUpdates=[];
   for(const r of orderRows){const orderNo=text(r['No. Pesanan']),old=state.incomes.get(orderNo);if(old?.incomeSourceEndDate&&sourceEnd&&compareSourceDate(sourceEnd,old.incomeSourceEndDate)<0){stale++;continue;}
-    incomePayload.push({orderNo,data:{schemaVersion:SCHEMA_VERSION,orderNo,amount:num(r['Total Penghasilan']),orderDate:safeDateOnly(r['Waktu Pesanan Dibuat']),releaseDate:safeDateOnly(r['Tanggal Dana Dilepaskan']),releaseMethod:text(r['Metode Pelepasan Dana']),paymentMethod:text(r['Metode pembayaran pembeli']),orderType:text(r['Tipe Pesanan']),skuRows:skuMap.get(orderNo)||[],incomeSourceFile:file.name,incomeSourceEndDate:sourceEnd,incomeImportedAt:timestamp}});old?updated++:inserted++;
-    const o=state.orders.get(orderNo);if(o){const hist=o.pendingEstimate||(!o.lastEstimate&&o.payoutLock?.source==='estimate'?o.payoutLock.estimateSnapshot:null);const upd={schemaVersion:SCHEMA_VERSION,pendingEstimate:null,shopeePendingAmount:0,shopeePendingStatus:'',shopeePendingReleaseEstimate:'',shopeePendingPaymentMethod:'',shopeePendingSourceFile:''};if(hist)upd.lastEstimate=hist;orderUpdates.push({orderNo,data:upd});if(o.pendingEstimate)cleared++;}
+    const data={schemaVersion:SCHEMA_VERSION,orderNo,amount:num(r['Total Penghasilan']),orderDate:safeDateOnly(r['Waktu Pesanan Dibuat']),releaseDate:safeDateOnly(r['Tanggal Dana Dilepaskan']),releaseMethod:text(r['Metode Pelepasan Dana']),paymentMethod:text(r['Metode pembayaran pembeli']),orderType:text(r['Tipe Pesanan']),skuRows:skuMap.get(orderNo)||[],incomeSourceFile:file.name,incomeSourceEndDate:sourceEnd,incomeImportedAt:timestamp};
+    if(old&&sameData(old,data,['amount','orderDate','releaseDate','releaseMethod','paymentMethod','orderType','skuRows']))unchanged++;else{incomePayload.push({orderNo,data});old?updated++:inserted++;}
+    const o=state.orders.get(orderNo),rawO=state.rawOrders.get(orderNo);if(o&&rawO&&(rawO.pendingEstimate||Number(rawO.shopeePendingAmount)>0)){const visibleBeforeFinal=normalizeOrder(rawO,orderNo,false),hist=visibleBeforeFinal.pendingEstimate||o.lastEstimate||(!o.lastEstimate&&o.payoutLock?.source==='estimate'?o.payoutLock.estimateSnapshot:null);const upd={schemaVersion:SCHEMA_VERSION,pendingEstimate:null,shopeePendingAmount:0,shopeePendingStatus:'',shopeePendingReleaseEstimate:'',shopeePendingPaymentMethod:'',shopeePendingSourceFile:''};if(hist&&!rawO.lastEstimate)upd.lastEstimate=hist;orderUpdates.push({orderNo,data:upd});cleared++;}
   }
   for(let i=0;i<incomePayload.length;i+=300){const wb=writeBatch(db);incomePayload.slice(i,i+300).forEach(x=>wb.set(doc(db,C.incomes,x.orderNo),x.data,{merge:true}));await wb.commit();}
   for(let i=0;i<orderUpdates.length;i+=300){const wb=writeBatch(db);orderUpdates.slice(i,i+300).forEach(x=>wb.set(doc(db,C.orders,x.orderNo),x.data,{merge:true}));await wb.commit();}
-  const duplicates=orderRowsRaw.length-orderRows.length;await logUpload({kind:'Income Excel',fileName:file.name,rows:orderRows.length,summary:`${inserted} baru, ${updated} update, ${cleared} estimasi aktif dibersihkan, ${stale} file lama dilewati${duplicates?`, ${duplicates} duplikat Order digabung`:''}`});return {rows:orderRows.length,inserted,updated,cleared,stale,duplicates};
+  for(const x of incomePayload){const prev=state.rawIncomes.get(x.orderNo)||{orderNo:x.orderNo};state.rawIncomes.set(x.orderNo,{...prev,...x.data});}
+  for(const x of orderUpdates){const prev=state.rawOrders.get(x.orderNo)||{orderNo:x.orderNo};state.rawOrders.set(x.orderNo,{...prev,...x.data});}
+  rebuildState({render:false,save:false});
+  const duplicates=orderRowsRaw.length-orderRows.length;await logUpload({kind:'Income Excel',fileName:file.name,rows:orderRows.length,summary:`${inserted} baru, ${updated} berubah, ${unchanged} tidak berubah, ${cleared} estimasi aktif dibersihkan, ${stale} file lama dilewati${duplicates?`, ${duplicates} duplikat Order digabung`:''}`});return {rows:orderRows.length,inserted,updated,unchanged,cleared,stale,duplicates};
 }
-async function logUpload(data){const uploadId=id('UP');await setDoc(doc(db,C.uploads,uploadId),{uploadId,createdAt:nowIso(),schemaVersion:SCHEMA_VERSION,...data});}
+async function logUpload(data){const uploadId=id('UP'),row={uploadId,createdAt:nowIso(),schemaVersion:SCHEMA_VERSION,...data};await setDoc(doc(db,C.uploads,uploadId),row);state.uploads=[row,...state.uploads].slice(0,CACHE_MAX_UPLOADS);saveCache();}
 
 async function importPendingHtml(file){
-  const raw=await file.text();if(!raw.includes('portal/finance/income')&&!raw.includes('Dana Akan Dilepaskan'))throw new Error('HTML bukan halaman Penghasilan Saya → Pending Shopee.');const parsed=new DOMParser().parseFromString(raw,'text/html');const found=[];
+  const raw=await file.text();if(!raw.includes('portal/finance/income')&&!raw.includes('Dana Akan Dilepaskan'))throw new Error('HTML bukan halaman Penghasilan Saya → Pending Shopee.');
+  const parsed=new DOMParser().parseFromString(raw,'text/html'),found=[];
   parsed.querySelectorAll('.grid-table-row').forEach(row=>{const oid=row.querySelector('.order-id'),amt=row.querySelector('.transaction-amount');if(!oid||!amt)return;const m=text(oid.textContent).match(/\b\d{6}[A-Z0-9]{6,}\b/);if(!m)return;const cells=[...row.children];found.push({orderNo:m[0],amount:num(amt.textContent),releaseEstimate:text(cells[1]?.textContent),status:text(cells[2]?.textContent),paymentMethod:text(cells[3]?.textContent)});});
-  const uniqueMap=new Map(found.map(x=>[x.orderNo,x]));let matched=0,unmatched=0,skippedFinal=0,skippedLocked=0,cancelled=0;const timestamp=nowIso();
-  const candidates=[];for(const x of uniqueMap.values()){const o=state.orders.get(x.orderNo),inc=state.incomes.get(x.orderNo);if(inc){skippedFinal++;continue;}if(!o){unmatched++;continue;}if(isCancelled(o.status)){cancelled++;continue;}if(o.payoutLock){skippedLocked++;continue;}if(x.amount>0)candidates.push(x);}
-  if(candidates.length){const result=await runTransaction(db,async tx=>{const snaps=[];for(const x of candidates)snaps.push({x,order:await tx.get(doc(db,C.orders,x.orderNo)),income:await tx.get(doc(db,C.incomes,x.orderNo))});const local={matched:0,unmatched:0,skippedFinal:0,skippedLocked:0,cancelled:0};for(const s of snaps){if(!s.order.exists()){local.unmatched++;continue;}if(s.income.exists()){local.skippedFinal++;continue;}const o=s.order.data();if(isCancelled(o.status)){local.cancelled++;continue;}if(o.payoutLock||o.estimateBatchId){local.skippedLocked++;continue;}tx.set(doc(db,C.orders,s.x.orderNo),{schemaVersion:SCHEMA_VERSION,pendingEstimate:{source:'html',amount:s.x.amount,status:s.x.status,releaseEstimate:s.x.releaseEstimate,paymentMethod:s.x.paymentMethod,updatedAt:timestamp,sourceFile:file.name,items:[]},shopeePendingAmount:0},{merge:true});local.matched++;}return local;});matched+=result.matched;unmatched+=result.unmatched;skippedFinal+=result.skippedFinal;skippedLocked+=result.skippedLocked;cancelled+=result.cancelled;}
-  await logUpload({kind:'HTML Pending',fileName:file.name,rows:uniqueMap.size,summary:`${matched} cocok, ${unmatched} tanpa Order, ${skippedFinal} sudah Final Excel, ${skippedLocked} sudah dicairkan estimasi`});
-  return {rows:uniqueMap.size,matched,unmatched,skippedFinal,skippedLocked,cancelled,total:[...uniqueMap.values()].reduce((s,x)=>s+x.amount,0)};
+  const uniqueMap=new Map(found.map(x=>[x.orderNo,x]));let matched=0,unchanged=0,unmatched=0,skippedFinal=0,skippedLocked=0,cancelled=0;const timestamp=nowIso(),updates=[];
+  for(const x of uniqueMap.values()){
+    const o=state.orders.get(x.orderNo),inc=state.incomes.get(x.orderNo);
+    if(inc){skippedFinal++;continue;}if(!o){unmatched++;continue;}if(isCancelled(o.status)){cancelled++;continue;}if(o.payoutLock||o.estimateBatchId){skippedLocked++;continue;}if(x.amount<=0)continue;
+    const current=o.pendingEstimate;
+    if(current?.source==='html'&&Number(current.amount)===Number(x.amount)&&text(current.status)===text(x.status)&&text(current.releaseEstimate)===text(x.releaseEstimate)&&text(current.paymentMethod)===text(x.paymentMethod)){matched++;unchanged++;continue;}
+    const patch={schemaVersion:SCHEMA_VERSION,pendingEstimate:{source:'html',amount:x.amount,status:x.status,releaseEstimate:x.releaseEstimate,paymentMethod:x.paymentMethod,updatedAt:timestamp,sourceFile:file.name,items:[]},shopeePendingAmount:0};
+    updates.push({orderNo:x.orderNo,patch});matched++;
+  }
+  for(let i=0;i<updates.length;i+=400){const wb=writeBatch(db);updates.slice(i,i+400).forEach(x=>wb.set(doc(db,C.orders,x.orderNo),x.patch,{merge:true}));await wb.commit();}
+  for(const x of updates){const rawOld=state.rawOrders.get(x.orderNo)||{orderNo:x.orderNo};state.rawOrders.set(x.orderNo,{...rawOld,...x.patch});}
+  rebuildState({render:false,save:false});
+  await logUpload({kind:'HTML Pending',fileName:file.name,rows:uniqueMap.size,summary:`${matched} cocok (${unchanged} tidak berubah), ${unmatched} tanpa Order, ${skippedFinal} sudah Final Excel, ${skippedLocked} sudah dicairkan estimasi`});
+  rebuildState({render:true,save:true});
+  return {rows:uniqueMap.size,matched,unchanged,unmatched,skippedFinal,skippedLocked,cancelled,total:[...uniqueMap.values()].reduce((s,x)=>s+x.amount,0)};
 }
 
 function openEstimateDialog(orderNo){const r=state.records.find(x=>x.orderNo===orderNo);if(!r||!r.order||r.income||r.order.payoutLock)return;state.editingEstimate=orderNo;$('estimateOrderNo').textContent=orderNo;const current=r.activeEstimate;setMessage('estimateMessage',current?.source==='html'?`Estimasi HTML saat ini <b>${money(current.amount)}</b>. Menyimpan manual akan mengganti estimasi aktif. Upload HTML berikutnya dapat memperbaruinya lagi.`:'Masukkan estimasi per unit. Nilai ini hanya sementara sampai Income Excel muncul.','info');
   const manualItems=current?.source==='manual'&&Array.isArray(current.items)?new Map(current.items.map(x=>[x.key,x])):new Map();$('estimateItemsBody').innerHTML=r.order.items.map((x,i)=>{const old=manualItems.get(x.key)||{},unit=Number(old.unit)||0;return `<tr><td><b>${esc(x.product||'-')}</b><br><span class="muted">${esc(x.variation||'-')}</span></td><td class="num">${Number(x.quantity)||1}</td><td class="num"><input class="estimate-unit" data-index="${i}" data-key="${esc(x.key||String(i))}" data-qty="${Number(x.quantity)||1}" type="number" min="0" step="1" value="${unit||''}" placeholder="0"></td><td class="num"><b class="estimate-subtotal">${money(unit*(Number(x.quantity)||1))}</b></td></tr>`;}).join('');$$('.estimate-unit').forEach(x=>x.addEventListener('input',recalcEstimateDialog));recalcEstimateDialog();$('estimateDialog').showModal();}
 function recalcEstimateDialog(){let total=0;$$('.estimate-unit').forEach((x,i)=>{const sub=Math.max(0,Number(x.value)||0)*(Number(x.dataset.qty)||1);total+=sub;document.querySelectorAll('.estimate-subtotal')[i].textContent=money(sub);});$('estimateGrandTotal').textContent=money(total);}
-async function saveManualEstimate(){const orderNo=state.editingEstimate;if(!orderNo)return;const inputs=$$('.estimate-unit'),items=inputs.map(x=>({key:x.dataset.key,unit:Math.max(0,Number(x.value)||0),amount:Math.max(0,Number(x.value)||0)*(Number(x.dataset.qty)||1)})),amount=items.reduce((s,x)=>s+x.amount,0),orderRef=doc(db,C.orders,orderNo),incomeRef=doc(db,C.incomes,orderNo),timestamp=nowIso();
+async function saveManualEstimate(){
+  const orderNo=state.editingEstimate;if(!orderNo)return;
+  const inputs=$$('.estimate-unit'),items=inputs.map(x=>({key:x.dataset.key,unit:Math.max(0,Number(x.value)||0),amount:Math.max(0,Number(x.value)||0)*(Number(x.dataset.qty)||1)})),amount=items.reduce((s,x)=>s+x.amount,0),timestamp=nowIso();
   if(amount===0&&!confirm('Total estimasi Rp0. Kosongkan estimasi manual/HTML untuk order ini?'))return;
-  try{state.busy=true;await runTransaction(db,async tx=>{const [oSnap,iSnap]=await Promise.all([tx.get(orderRef),tx.get(incomeRef)]);if(!oSnap.exists())throw new Error('Order sudah tidak ada.');if(iSnap.exists())throw new Error('Income final sudah tersedia. Estimasi tidak boleh diedit lagi.');const o=oSnap.data();if(isCancelled(o.status))throw new Error('Pesanan sudah Batal.');if(o.payoutLock||o.estimateBatchId)throw new Error('Order sudah pernah dicairkan.');tx.set(orderRef,{schemaVersion:SCHEMA_VERSION,pendingEstimate:amount?{source:'manual',amount,items,updatedAt:timestamp,sourceFile:''}:null},{merge:true});});$('estimateDialog').close();await loadAll();flash(amount?`Estimasi manual ${orderNo} disimpan ${money(amount)}.`:`Estimasi ${orderNo} dikosongkan.`,'success');}catch(e){setMessage('estimateMessage',esc(e.message),'warning');}finally{state.busy=false;}}
+  const o=state.orders.get(orderNo);if(!o){setMessage('estimateMessage','Order sudah tidak ada.','warning');return;}if(state.incomes.has(orderNo)){setMessage('estimateMessage','Income final sudah tersedia. Estimasi tidak boleh diedit lagi.','warning');return;}if(isCancelled(o.status)||o.payoutLock||o.estimateBatchId){setMessage('estimateMessage','Order tidak dapat diedit karena Batal atau sudah dicairkan.','warning');return;}
+  try{
+    state.busy=true;
+    const patch={schemaVersion:SCHEMA_VERSION,pendingEstimate:amount?{source:'manual',amount,items,updatedAt:timestamp,sourceFile:''}:null};
+    await setDoc(doc(db,C.orders,orderNo),patch,{merge:true});
+    const rawOld=state.rawOrders.get(orderNo)||{orderNo};state.rawOrders.set(orderNo,{...rawOld,...patch});
+    $('estimateDialog').close();rebuildState({render:true,save:true});
+    flash(amount?`Estimasi manual ${orderNo} disimpan ${money(amount)}.`:`Estimasi ${orderNo} dikosongkan.`,'success');
+  }catch(e){setMessage('estimateMessage',esc(e.message),'warning');}finally{state.busy=false;}
+}
 
 function buildBatchId(kind){const d=new Date(),pad=n=>String(n).padStart(2,'0');return `BATCH-${kind==='estimate'?'EST':'FIN'}-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}-${Math.random().toString(36).slice(2,5).toUpperCase()}`;}
 function selectedPendingRecords(){return filteredPending().filter(r=>state.selectedPending.has(r.orderNo)&&r.state==='pendingEstimated');}
@@ -330,7 +393,7 @@ function selectedReadyRecords(){return filteredReady().filter(r=>state.selectedR
 function snapshotProducts(order){return (order?.items||[]).map(x=>({product:x.product||'',variation:x.variation||'',quantity:Number(x.quantity)||0,skuRef:x.skuRef||''}));}
 async function createBatch(kind){
   if(state.busy)return;const rows=kind==='estimate'?selectedPendingRecords():selectedReadyRecords();if(!rows.length)return;const base=rows.reduce((s,r)=>s+(kind==='estimate'?r.activeEstimate.amount:r.income.amount),0),plan=buildCorrectionPlan(correctionEligibleRecords(),base),batchId=buildBatchId(kind),createdAt=nowIso();
-  const note=`Dasar ${money(base)} ${plan.correctionAmount?`+ koreksi ${plan.correctionAmount>0?'+':''}${money(plan.correctionAmount)}`:''} = pencairan ${money(plan.payoutAmount)}.`;if(!confirm(`${kind==='estimate'?'Buat Batch Estimasi':'Buat Batch Final'} ${batchId}?\n\n${note}\n\nBatch adalah snapshot permanen.`))return;
+  const localItems=rows.map(r=>({orderNo:r.orderNo,basis:kind,amount:kind==='estimate'?Number(r.activeEstimate.amount):Number(r.income.amount),orderDate:r.order?.orderDate||r.income?.orderDate||'',releaseDate:r.income?.releaseDate||'',products:snapshotProducts(r.order),estimateSource:kind==='estimate'?r.activeEstimate.source:null}));const note=`Dasar ${money(base)} ${plan.correctionAmount?`+ koreksi ${plan.correctionAmount>0?'+':''}${money(plan.correctionAmount)}`:''} = pencairan ${money(plan.payoutAmount)}.`;if(!confirm(`${kind==='estimate'?'Buat Batch Estimasi':'Buat Batch Final'} ${batchId}?\n\n${note}\n\nBatch adalah snapshot permanen.`))return;
   const orderRefs=rows.map(r=>doc(db,C.orders,r.orderNo)),incomeRefs=rows.map(r=>doc(db,C.incomes,r.orderNo));const corrRefs=plan.applications.map(a=>({ledger:doc(db,C.ledger,a.orderNo),income:doc(db,C.incomes,a.orderNo),order:doc(db,C.orders,a.orderNo)}));
   try{state.busy=true;await runTransaction(db,async tx=>{
       const selectedOrderSnaps=[];for(const ref of orderRefs)selectedOrderSnaps.push(await tx.get(ref));const selectedIncomeSnaps=[];for(const ref of incomeRefs)selectedIncomeSnaps.push(await tx.get(ref));const corrSnaps=[];for(const refs of corrRefs)corrSnaps.push({ledger:await tx.get(refs.ledger),income:await tx.get(refs.income),order:await tx.get(refs.order)});
@@ -338,13 +401,26 @@ async function createBatch(kind){
         if(kind==='estimate'){if(iSnap.exists())throw new Error(`${r.orderNo}: Income final baru saja masuk. Refresh lalu gunakan Final Excel.`);const current=o.pendingEstimate;if(!current||Number(current.amount)<=0||Number(current.amount)!==Number(r.activeEstimate.amount))throw new Error(`${r.orderNo}: estimasi berubah. Refresh terlebih dahulu.`);}else{if(!iSnap.exists())throw new Error(`${r.orderNo}: Income tidak ditemukan.`);const inc=iSnap.data();if(inc.payoutBatchId||inc.batchId)throw new Error(`${r.orderNo}: sudah masuk Batch.`);if(Number(inc.amount)!==Number(r.income.amount))throw new Error(`${r.orderNo}: nominal Income berubah. Refresh.`);}
       });
       plan.applications.forEach((a,i)=>{const snaps=corrSnaps[i];if(!snaps.income.exists())throw new Error(`${a.orderNo}: Income koreksi berubah/hilang.`);const currentFinal=Number(snaps.income.data().amount)||0;if(currentFinal!==Number(a.finalAmount))throw new Error(`${a.orderNo}: Final Income koreksi berubah. Refresh.`);const expected=Number(currentAppliedMap().get(a.orderNo)||0),ledgerApplied=snaps.ledger.exists()?Number(snaps.ledger.data()?.appliedAmount)||0:expected;if(Math.round(expected)!==Math.round(ledgerApplied))throw new Error(`${a.orderNo}: ledger koreksi berubah. Buka Pengaturan → Sinkronkan Ledger, lalu refresh.`);});
-      const items=rows.map(r=>({orderNo:r.orderNo,basis:kind,amount:kind==='estimate'?Number(r.activeEstimate.amount):Number(r.income.amount),orderDate:r.order?.orderDate||r.income?.orderDate||'',releaseDate:r.income?.releaseDate||'',products:snapshotProducts(r.order),estimateSource:kind==='estimate'?r.activeEstimate.source:null}));
+      const items=localItems;
       tx.set(doc(db,C.batches,batchId),{schemaVersion:SCHEMA_VERSION,batchId,createdAt,status:'active',kind,baseAmount:base,correctionAmount:plan.correctionAmount,payoutAmount:plan.payoutAmount,items,corrections:plan.applications,filterSnapshot:kind==='estimate'?{from:$('pendingFrom').value,to:$('pendingTo').value,products:[...state.pendingProducts]}:{from:$('readyFrom').value,to:$('readyTo').value,products:[...state.readyProducts]}});
       rows.forEach((r,i)=>{if(kind==='estimate')tx.set(orderRefs[i],{payoutLock:{batchId,source:'estimate',amount:Number(r.activeEstimate.amount),paidAt:createdAt,estimateSource:r.activeEstimate.source,estimateSnapshot:r.activeEstimate},lastEstimate:r.activeEstimate},{merge:true});else tx.set(incomeRefs[i],{payoutBatchId:batchId,payoutLockedAt:createdAt},{merge:true});});
       plan.applications.forEach((a,i)=>{const current=Number(corrSnaps[i].ledger.data()?.appliedAmount)||0;tx.set(corrRefs[i].ledger,{orderNo:a.orderNo,appliedAmount:current+a.appliedAmount,lastBatchId:batchId,updatedAt:createdAt,schemaVersion:SCHEMA_VERSION},{merge:true});});
     });
-    await logUpload({kind:`Batch ${kind==='estimate'?'Estimasi':'Final'}`,fileName:batchId,rows:rows.length,summary:note});state.selectedPending.clear();state.selectedReady.clear();await loadAll({syncLedger:false});flash(`${batchId} berhasil dibuat. Total pencairan ${money(plan.payoutAmount)}.`,'success');
-  }catch(e){flash(e.message,'error');await loadAll();}finally{state.busy=false;}
+    const batchDoc={schemaVersion:SCHEMA_VERSION,batchId,createdAt,status:'active',kind,baseAmount:base,correctionAmount:plan.correctionAmount,payoutAmount:plan.payoutAmount,items:localItems,corrections:plan.applications,filterSnapshot:kind==='estimate'?{from:$('pendingFrom').value,to:$('pendingTo').value,products:[...state.pendingProducts]}:{from:$('readyFrom').value,to:$('readyTo').value,products:[...state.readyProducts]}};
+    state.batches.push(normalizeBatch(batchDoc,batchId));
+    rows.forEach(r=>{
+      if(kind==='estimate'){
+        const prev=state.rawOrders.get(r.orderNo)||{orderNo:r.orderNo};
+        state.rawOrders.set(r.orderNo,{...prev,payoutLock:{batchId,source:'estimate',amount:Number(r.activeEstimate.amount),paidAt:createdAt,estimateSource:r.activeEstimate.source,estimateSnapshot:r.activeEstimate},lastEstimate:r.activeEstimate});
+      }else{
+        const prev=state.rawIncomes.get(r.orderNo)||{orderNo:r.orderNo};
+        state.rawIncomes.set(r.orderNo,{...prev,payoutBatchId:batchId,payoutLockedAt:createdAt});
+      }
+    });
+    plan.applications.forEach(a=>state.ledger.set(a.orderNo,{orderNo:a.orderNo,appliedAmount:Number(currentAppliedMap().get(a.orderNo)||0),lastBatchId:batchId,updatedAt:createdAt}));
+    await logUpload({kind:`Batch ${kind==='estimate'?'Estimasi':'Final'}`,fileName:batchId,rows:rows.length,summary:note});
+    state.selectedPending.clear();state.selectedReady.clear();rebuildState({render:true,save:true});flash(`${batchId} berhasil dibuat. Total pencairan ${money(plan.payoutAmount)}.`,'success');
+  }catch(e){flash(`${e.message} Data lokal tidak di-reload otomatis agar hemat quota; tekan Refresh hanya jika perlu. `,'error');}finally{state.busy=false;}
 }
 
 function openBatchDetail(batchId){const b=state.batches.find(x=>x.batchId===batchId);if(!b)return;$('batchDetailTitle').textContent=b.batchId;$('batchDetailMeta').textContent=`${dt(b.createdAt)} · ${b.kind}`;const payout=b.payoutAmount||b.baseAmount+b.correctionAmount;$('batchDetailBody').innerHTML=`<div class="batch-detail-summary"><div><span>Dasar</span><strong>${money(b.baseAmount)}</strong></div><div><span>Koreksi</span><strong>${b.correctionAmount>0?'+':''}${money(b.correctionAmount)}</strong></div><div><span>Total Pencairan</span><strong>${money(payout)}</strong></div><div><span>Pesanan</span><strong>${b.items.length}</strong></div></div><h3>Pesanan</h3><div class="table-wrap"><table><thead><tr><th>No. Pesanan</th><th>Basis</th><th>Produk</th><th class="num">Snapshot</th></tr></thead><tbody>${b.items.map(i=>`<tr><td><b>${esc(i.orderNo)}</b></td><td><span class="badge ${i.basis==='estimate'?'estimate':'final'}">${esc(i.basis)}</span></td><td>${(i.products||[]).map(p=>`${esc(p.product||'-')} ${p.variation?`· ${esc(p.variation)}`:''}`).join('<br>')}</td><td class="num"><b>${money(i.amount)}</b></td></tr>`).join('')}</tbody></table></div>${b.corrections.length?`<h3>Koreksi yang diterapkan</h3><div class="table-wrap"><table><thead><tr><th>No. Pesanan</th><th class="num">Diterapkan</th></tr></thead><tbody>${b.corrections.map(c=>`<tr><td>${esc(c.orderNo)}</td><td class="num"><b class="${c.appliedAmount>0?'money-positive':'money-negative'}">${c.appliedAmount>0?'+':''}${money(c.appliedAmount)}</b></td></tr>`).join('')}</tbody></table></div>`:''}`;$('batchDetailDialog').showModal();}
@@ -353,7 +429,7 @@ function exportReport(){const rows=filteredReport().map(r=>{const est=estimateFo
 function exportBatches(){const rows=[];for(const b of state.batches){for(const i of b.items)rows.push({'Batch':b.batchId,'Waktu':b.createdAt,'Jenis':b.kind,'Jenis Baris':'Pesanan','No. Pesanan':i.orderNo,'Basis':i.basis,'Nominal':i.amount,'Koreksi':'','Total Pencairan':b.payoutAmount||b.baseAmount+b.correctionAmount});for(const c of b.corrections)rows.push({'Batch':b.batchId,'Waktu':b.createdAt,'Jenis':b.kind,'Jenis Baris':'Koreksi','No. Pesanan':c.orderNo,'Basis':'koreksi','Nominal':'','Koreksi':c.appliedAmount,'Total Pencairan':b.payoutAmount||b.baseAmount+b.correctionAmount});}downloadXlsx(rows,`Riwayat_Batch_${today()}.xlsx`,'Batch');}
 function downloadXlsx(rows,filename,sheet){if(!rows.length){flash('Tidak ada data untuk diexport.','error');return;}const ws=XLSX.utils.json_to_sheet(rows),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,sheet);XLSX.writeFile(wb,filename);}
 
-async function resetDatabase(){if($('resetPhrase').value!=='HAPUS SEMUA'){setMessage('settingsMessage','Ketik persis HAPUS SEMUA untuk mengaktifkan reset.','warning');return;}if(!confirm('Semua Master Order, Income, Batch, Upload Log, dan Ledger akan dihapus permanen. Lanjutkan?'))return;const cols=[C.orders,C.incomes,C.batches,C.uploads,C.ledger,'anomalies','edits'];try{state.busy=true;for(const name of cols){const snap=await getDocs(collection(db,name));const refs=snap.docs.map(d=>d.ref);for(let i=0;i<refs.length;i+=400){const wb=writeBatch(db);refs.slice(i,i+400).forEach(r=>wb.delete(r));await wb.commit();}}$('resetPhrase').value='';await loadAll({syncLedger:false});setMessage('settingsMessage','Database aplikasi sudah kosong.','success');}catch(e){setMessage('settingsMessage',esc(e.message),'warning');}finally{state.busy=false;}}
+async function resetDatabase(){if($('resetPhrase').value!=='HAPUS SEMUA'){setMessage('settingsMessage','Ketik persis HAPUS SEMUA untuk mengaktifkan reset.','warning');return;}if(!confirm('Semua Master Order, Income, Batch, Upload Log, dan Ledger akan dihapus permanen. Lanjutkan?'))return;const cols=[C.orders,C.incomes,C.batches,C.uploads,C.ledger,'anomalies','edits'];try{state.busy=true;for(const name of cols){const snap=await getDocs(collection(db,name));const refs=snap.docs.map(d=>d.ref);for(let i=0;i<refs.length;i+=400){const wb=writeBatch(db);refs.slice(i,i+400).forEach(r=>wb.delete(r));await wb.commit();}}$('resetPhrase').value='';state.rawOrders.clear();state.rawIncomes.clear();state.orders.clear();state.incomes.clear();state.batches=[];state.uploads=[];state.ledger.clear();clearCache();rebuildState({render:true,save:false});setMessage('settingsMessage','Database aplikasi sudah kosong.','success');}catch(e){setMessage('settingsMessage',esc(e.message),'warning');}finally{state.busy=false;}}
 
 const titles={dashboard:['Dashboard','Ringkasan master terbaru.'],upload:['Upload Excel','Order dan Income Excel Shopee.'],report:['Laporan Gabungan','Estimasi, final, pencairan, dan koreksi dalam satu laporan.'],pending:['Pending Pembayaran','Estimasi sementara sebelum Income Excel tersedia.'],cancelled:['Pesanan Batal','Dipisahkan dari alur pencairan.'],ready:['Siap Dicairkan','Murni pembayaran final dari Income Excel.'],history:['Riwayat Batch','Snapshot pencairan permanen.'],recon:['Rekonsiliasi','Periksa klop antara Final Excel dan pencairan nyata.'],settings:['Pengaturan','Status sistem dan tindakan administratif.']};
 function switchView(view){$$('.view').forEach(v=>v.classList.toggle('active',v.id===`view-${view}`));$$('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));$('pageTitle').textContent=titles[view]?.[0]||view;$('pageSub').textContent=titles[view]?.[1]||'';closeDrawer();if(view==='report')renderReport();if(view==='pending')renderPending();if(view==='ready')renderReady();if(view==='recon')renderRecon();}
@@ -361,13 +437,13 @@ function openDrawer(){$('sidebar').classList.add('open');$('drawerBackdrop').hid
 
 function bind(){
   $('loginForm').addEventListener('submit',async e=>{e.preventDefault();setMessage('loginMessage','Memeriksa akun...','info');try{const cred=await signInWithEmailAndPassword(auth,$('loginEmail').value.trim(),$('loginPassword').value);if(cred.user.uid!==ADMIN_UID){await signOut(auth);throw new Error('Akun ini bukan admin aplikasi.');}}catch(err){setMessage('loginMessage',esc(err.message),'warning');}});
-  $('logoutBtn').addEventListener('click',()=>signOut(auth));$('refreshBtn').addEventListener('click',()=>loadAll().then(()=>flash('Data diperbarui.','success')).catch(e=>flash(e.message,'error')));
+  $('logoutBtn').addEventListener('click',()=>signOut(auth));$('refreshBtn').addEventListener('click',()=>{if(state.busy)return;state.busy=true;$('firebaseStatus').textContent='Sinkronisasi server...';loadAll().then(()=>{flash('Data server diperbarui.','success');$('firebaseStatus').textContent='Terhubung · cache aktif';}).catch(e=>{flash(e.message,'error');$('firebaseStatus').textContent='Cache lokal · server gagal';}).finally(()=>{state.busy=false;});});
   $$('[data-view]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));$('drawerOpen').addEventListener('click',openDrawer);$('drawerClose').addEventListener('click',closeDrawer);$('drawerBackdrop').addEventListener('click',closeDrawer);$('bottomMore').addEventListener('click',openDrawer);
   $('orderFile').addEventListener('change',e=>$('orderFileName').textContent=e.target.files[0]?.name||'Belum dipilih');$('incomeFile').addEventListener('change',e=>$('incomeFileName').textContent=e.target.files[0]?.name||'Belum dipilih');
   $('clearExcelBtn').addEventListener('click',()=>{$('orderFile').value='';$('incomeFile').value='';$('orderFileName').textContent='Belum dipilih';$('incomeFileName').textContent='Belum dipilih';});
-  $('importExcelBtn').addEventListener('click',async()=>{const of=$('orderFile').files[0],inf=$('incomeFile').files[0];if(!of&&!inf){setMessage('excelMessage','Pilih minimal satu file Excel.','warning');return;}try{state.busy=true;setMessage('excelMessage','Memproses Excel...','info');let parts=[];if(of){const r=await importOrderExcel(of);parts.push(`Order: ${r.rows} pesanan`);await loadAll({syncLedger:false});}if(inf){const r=await importIncomeExcel(inf);parts.push(`Income: ${r.rows} final, ${r.cleared} estimasi dibersihkan`);}await loadAll();setMessage('excelMessage',`${parts.join(' · ')}. Master berhasil diperbarui.`,'success');}catch(e){setMessage('excelMessage',esc(e.message),'warning');}finally{state.busy=false;}});
+  $('importExcelBtn').addEventListener('click',async()=>{const of=$('orderFile').files[0],inf=$('incomeFile').files[0];if(!of&&!inf){setMessage('excelMessage','Pilih minimal satu file Excel.','warning');return;}try{state.busy=true;setMessage('excelMessage','Memproses Excel...','info');let parts=[];if(of){const r=await importOrderExcel(of);parts.push(`Order: ${r.rows} pesanan`);}if(inf){const r=await importIncomeExcel(inf);parts.push(`Income: ${r.rows} final, ${r.cleared} estimasi dibersihkan`);}rebuildState({render:true,save:true});setMessage('excelMessage',`${parts.join(' · ')}. Master diperbarui tanpa membaca ulang seluruh Firebase.`,'success');}catch(e){setMessage('excelMessage',esc(e.message),'warning');}finally{state.busy=false;}});
   $('pendingHtmlFile').addEventListener('change',e=>{$('importHtmlBtn').disabled=!e.target.files[0];if(e.target.files[0])setMessage('htmlMessage',`Siap import: <b>${esc(e.target.files[0].name)}</b>`,'info');});
-  $('importHtmlBtn').addEventListener('click',async()=>{const f=$('pendingHtmlFile').files[0];if(!f)return;try{state.busy=true;const r=await importPendingHtml(f);await loadAll();setMessage('htmlMessage',`HTML dibaca ${r.rows} order: <b>${r.matched} cocok</b>, ${r.skippedFinal} diabaikan karena Final Excel sudah ada, ${r.skippedLocked} sudah dicairkan estimasi, ${r.unmatched} tidak ada di Master Order. Total nominal di HTML ${money(r.total)}.`,'success');}catch(e){setMessage('htmlMessage',esc(e.message),'warning');}finally{state.busy=false;}});
+  $('importHtmlBtn').addEventListener('click',async()=>{const f=$('pendingHtmlFile').files[0];if(!f)return;try{state.busy=true;const r=await importPendingHtml(f);setMessage('htmlMessage',`HTML dibaca ${r.rows} order: <b>${r.matched} cocok</b>, ${r.skippedFinal} diabaikan karena Final Excel sudah ada, ${r.skippedLocked} sudah dicairkan estimasi, ${r.unmatched} tidak ada di Master Order. Total nominal di HTML ${money(r.total)}.`,'success');}catch(e){setMessage('htmlMessage',esc(e.message),'warning');}finally{state.busy=false;}});
   ['reportFrom','reportTo','reportSearch'].forEach(x=>$(x).addEventListener('input',renderReport));$('reportDateMode').addEventListener('change',()=>{configureReportDateMode();renderReport();});$('reportSearchMode').addEventListener('change',()=>{const input=$('reportSearch');input.value='';configureReportSearch();renderReport();});$('reportReset').addEventListener('click',()=>{$('reportDateMode').value='order';$('reportFrom').value='';$('reportTo').value='';$('reportSearchMode').value='all';$('reportSearch').value='';state.reportProducts.clear();state.reportOrderStatuses.clear();configureReportDateMode();configureReportSearch();renderReport();});$('exportReportBtn').addEventListener('click',exportReport);
   ['pendingFrom','pendingTo','pendingSearch'].forEach(x=>$(x).addEventListener('input',renderPending));$('pendingReset').addEventListener('click',()=>{$('pendingFrom').value='';$('pendingTo').value='';$('pendingSearch').value='';state.pendingProducts.clear();state.selectedPending.clear();renderPending();});$('pendingSelectAll').addEventListener('change',e=>{const rows=filteredPending().filter(r=>r.state==='pendingEstimated');rows.forEach(r=>e.target.checked?state.selectedPending.add(r.orderNo):state.selectedPending.delete(r.orderNo));renderPending();});$('createEstimateBatchBtn').addEventListener('click',()=>createBatch('estimate'));
   ['readyFrom','readyTo','readySearch'].forEach(x=>$(x).addEventListener('input',renderReady));$('readyReset').addEventListener('click',()=>{$('readyFrom').value='';$('readyTo').value='';$('readySearch').value='';state.readyProducts.clear();state.selectedReady.clear();renderReady();});$('readySelectAll').addEventListener('change',e=>{filteredReady().forEach(r=>e.target.checked?state.selectedReady.add(r.orderNo):state.selectedReady.delete(r.orderNo));renderReady();});$('createFinalBatchBtn').addEventListener('click',()=>createBatch('final'));
@@ -376,6 +452,14 @@ function bind(){
 
 bind();
 onAuthStateChanged(auth,async user=>{
-  if(user&&user.uid===ADMIN_UID){$('authGate').hidden=true;$('appShell').hidden=false;$('accountEmail').textContent=user.email||user.uid;$('firebaseStatus').textContent='Terhubung';try{await loadAll();}catch(e){flash(e.message,'error');}}
-  else{$('authGate').hidden=false;$('appShell').hidden=true;if(user)await signOut(auth);}
+  if(user&&user.uid===ADMIN_UID){
+    $('authGate').hidden=true;$('appShell').hidden=false;$('accountEmail').textContent=user.email||user.uid;
+    const cached=loadCache();
+    if(cached){$('firebaseStatus').textContent='Cache lokal · hemat quota';renderAll();flash('Data dibuka dari cache lokal. Tekan Refresh hanya jika perlu sinkronisasi dari Firebase.','success');}
+    else{
+      $('firebaseStatus').textContent='Sinkronisasi awal...';
+      try{await loadAll();$('firebaseStatus').textContent='Terhubung · cache aktif';}
+      catch(e){$('firebaseStatus').textContent='Server gagal · belum ada cache';flash(e.message,'error');renderAll();}
+    }
+  }else{$('authGate').hidden=false;$('appShell').hidden=true;if(user)await signOut(auth);}
 });
