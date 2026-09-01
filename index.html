@@ -50,7 +50,7 @@
       <header class="topbar">
         <button id="drawerOpen" class="icon-btn mobile-only" type="button">☰</button>
         <div><h1 id="pageTitle">Dashboard</h1><p id="pageSub">Ringkasan master terbaru.</p></div>
-        <div class="topbar-right"><span class="version-pill">v2.0.4</span><button id="refreshBtn" class="btn ghost" type="button">Refresh</button></div>
+        <div class="topbar-right"><span class="version-pill">v2.0.6</span><button id="refreshBtn" class="btn ghost" type="button">Refresh</button></div>
       </header>
 
       <div id="globalMessage" class="global-message" hidden></div>
@@ -91,7 +91,8 @@
       <section id="view-report" class="view">
         <article class="card">
           <div class="card-head"><div><h2>Laporan Gabungan</h2><p>Tempat melihat perjalanan lengkap: Order, Estimasi, Final Income, Pencairan, dan Koreksi.</p></div><button id="exportReportBtn" class="btn ghost" type="button">Export Excel</button></div>
-          <div class="filters six"><label>Order dari<input id="reportFrom" type="date"></label><label>Sampai<input id="reportTo" type="date"></label><label>Status<select id="reportState"><option value="all">Semua</option><option value="pending">Pending</option><option value="readyFinal">Siap Dicairkan</option><option value="paid">Sudah Dicairkan</option><option value="cancelled">Batal</option><option value="held">Ditahan</option></select></label><label>Cari<input id="reportSearch" type="search" placeholder="No pesanan / produk"></label><div class="filter-action"><button id="reportReset" class="btn ghost" type="button">Reset</button></div></div>
+          <div class="filters report-filters report-filter-main"><label>Data tanggal<select id="reportDateMode"><option value="order">Order · Tanggal Order</option><option value="final">Final Income · Tanggal Dana Dilepas</option><option value="combined">Final + Estimasi · Tanggal Order</option></select></label><label id="reportFromLabel">Order dari<input id="reportFrom" type="date"></label><label id="reportToLabel">Sampai<input id="reportTo" type="date"></label><label>Cari berdasarkan<select id="reportSearchMode"><option value="all">No. Pesanan / Produk</option><option value="orderNo">No. Pesanan</option><option value="product">Produk</option></select></label><label id="reportSearchLabel">Cari<input id="reportSearch" type="search" placeholder="No pesanan / produk"></label><div class="filter-action"><button id="reportReset" class="btn ghost" type="button">Reset</button></div></div>
+          <div id="reportOrderStatusPicker" class="product-picker status-picker"></div>
           <div id="reportProductPicker" class="product-picker"></div>
           <div class="summary-strip cols-6"><div><span>Pesanan</span><strong id="reportCount">0</strong></div><div><span>Estimasi Aktif</span><strong id="reportEstimateTotal">Rp0</strong></div><div><span>Final Income</span><strong id="reportFinalTotal">Rp0</strong></div><div class="summary-emphasis"><span>Total Final + Estimasi Aktif</span><strong id="reportCombinedTotal">Rp0</strong></div><div><span>Sudah Dicairkan</span><strong id="reportPaidTotal">Rp0</strong></div><div><span>Sisa Koreksi</span><strong id="reportCorrectionTotal">Rp0</strong></div></div>
           <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Status Order</th><th>Estimasi / Riwayat</th><th class="num">Final Income</th><th>Pencairan</th><th class="num">Koreksi</th><th>Status</th></tr></thead><tbody id="reportBody"></tbody></table></div>
@@ -139,7 +140,7 @@
 
       <section id="view-settings" class="view">
         <div class="grid-2">
-          <article class="card"><div class="card-head"><div><h2>Status Sistem</h2></div></div><div class="status-list"><div><span>Versi</span><strong>2.0.4</strong></div><div><span>Schema</span><strong>v2</strong></div><div><span>Firebase</span><strong id="settingsFirebase">-</strong></div><div><span>Admin UID</span><strong>terkunci</strong></div></div><button id="syncLedgerBtn" class="btn ghost" type="button">Sinkronkan Ledger Koreksi</button></article>
+          <article class="card"><div class="card-head"><div><h2>Status Sistem</h2></div></div><div class="status-list"><div><span>Versi</span><strong>2.0.5</strong></div><div><span>Schema</span><strong>v2</strong></div><div><span>Firebase</span><strong id="settingsFirebase">-</strong></div><div><span>Admin UID</span><strong>terkunci</strong></div></div><button id="syncLedgerBtn" class="btn ghost" type="button">Sinkronkan Ledger Koreksi</button></article>
           <article class="card danger-card"><div class="card-head"><div><h2>Reset Database</h2><p>Hanya untuk mulai benar-benar kosong. Riwayat Batch juga akan terhapus.</p></div></div><label>Ketik <b>HAPUS SEMUA</b><input id="resetPhrase" type="text" autocomplete="off"></label><button id="resetDbBtn" class="btn danger" type="button">Hapus Semua Data Aplikasi</button><div id="settingsMessage" class="message warning">Jangan gunakan reset jika masih membutuhkan riwayat Batch.</div></article>
         </div>
       </section>

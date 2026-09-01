@@ -21,7 +21,7 @@ const firebaseApp=initializeApp(FIREBASE_CONFIG), auth=getAuth(firebaseApp), db=
 
 const state={
   rawOrders:new Map(), rawIncomes:new Map(), orders:new Map(), incomes:new Map(), batches:[], uploads:[], ledger:new Map(), records:[],
-  selectedPending:new Set(), selectedReady:new Set(), reportProducts:new Set(), pendingProducts:new Set(), readyProducts:new Set(), editingEstimate:null,
+  selectedPending:new Set(), selectedReady:new Set(), reportProducts:new Set(), reportOrderStatuses:new Set(), pendingProducts:new Set(), readyProducts:new Set(), editingEstimate:null,
   busy:false
 };
 const $=id=>document.getElementById(id);
@@ -63,6 +63,54 @@ function reportCategory(r){
   if(r.state.startsWith('paid'))return 'paid';
   if(r.state==='cancelled')return 'cancelled';
   if(r.state==='cancelledWithIncome'||r.state==='incomeOnly'||r.state==='orderStatusUnknown'||r.state==='incomeNonPositive')return 'held';return 'other';
+}
+function reportHtmlEstimate(r){
+  const candidates=[r?.activeEstimate,historicalEstimate(r?.order),r?.order?.lastEstimate,r?.order?.pendingEstimate].filter(Boolean);
+  return candidates.find(x=>x?.source==='html')||null;
+}
+function reportOrderStatusEntries(){
+  const statuses=new Set();
+  for(const r of state.records){const status=text(r.order?.status);if(status)statuses.add(status);}
+  return [...statuses].sort((a,b)=>a.localeCompare(b,'id'));
+}
+function renderReportOrderStatusPicker(){
+  const el=$('reportOrderStatusPicker');if(!el)return;const statuses=reportOrderStatusEntries();
+  const allowed=new Set(statuses);for(const x of [...state.reportOrderStatuses])if(!allowed.has(x))state.reportOrderStatuses.delete(x);
+  el.innerHTML=`<div class="product-picker-head"><strong>Status Order <span class="muted">· checkbox dari Excel · kosong = semua</span></strong><div><button class="btn ghost picker-none" type="button">Kosongkan</button></div></div><div class="product-checks status-checks">${statuses.map(x=>`<label><input type="checkbox" value="${esc(x)}" ${state.reportOrderStatuses.has(x)?'checked':''}>${esc(x)}</label>`).join('')||'<span class="muted">Belum ada status Order dari Excel.</span>'}</div>`;
+  el.querySelectorAll('input[type=checkbox]').forEach(c=>c.addEventListener('change',()=>{c.checked?state.reportOrderStatuses.add(c.value):state.reportOrderStatuses.delete(c.value);renderReport();}));
+  el.querySelector('.picker-none')?.addEventListener('click',()=>{state.reportOrderStatuses.clear();renderReport();});
+}
+function reportMatchesOrderStatus(r){
+  if(!state.reportOrderStatuses.size)return true;
+  return !!r.order&&state.reportOrderStatuses.has(text(r.order.status));
+}
+function configureReportDateMode(){
+  const mode=$('reportDateMode')?.value||'order',fromLabel=$('reportFromLabel'),toLabel=$('reportToLabel');
+  if(fromLabel)fromLabel.firstChild.nodeValue=mode==='final'?'Dana dilepas dari':mode==='combined'?'Order dari':'Order dari';
+  if(toLabel)toLabel.firstChild.nodeValue='Sampai';
+}
+function reportDateForMode(r,mode){
+  if(mode==='final')return r.income?.releaseDate||'';
+  return r.order?.orderDate||r.income?.orderDate||'';
+}
+function reportModeIncludes(r,mode){
+  if(mode==='final')return !!r.income;
+  if(mode==='combined')return !!r.income||!!r.activeEstimate;
+  return !!r.order;
+}
+function configureReportSearch(){
+  const mode=$('reportSearchMode')?.value||'all',input=$('reportSearch'),label=$('reportSearchLabel');if(!input)return;
+  input.type='search';
+  input.placeholder=mode==='orderNo'?'No. Pesanan':mode==='product'?'Nama produk':'No pesanan / produk';
+  if(label)label.firstChild.nodeValue='Cari';
+}
+function reportMatchesSearch(r){
+  const mode=$('reportSearchMode')?.value||'all',q=text($('reportSearch')?.value);
+  if(!q)return true;
+  const needle=q.toLowerCase();
+  if(mode==='orderNo')return r.orderNo.toLowerCase().includes(needle);
+  if(mode==='product')return productNames(r.order).join(' ').toLowerCase().includes(needle);
+  return [r.orderNo,...productNames(r.order)].join(' ').toLowerCase().includes(needle);
 }
 function sourceLabel(est){if(!est)return '-';return est.source==='html'?'HTML Shopee':est.source==='manual'?'Manual':'Estimasi';}
 function activeBatchItems(){return state.batches.filter(b=>b.status==='active').flatMap(b=>(b.items||[]).map(i=>({...i,batchId:b.batchId,batchCreatedAt:b.createdAt})));}
@@ -136,18 +184,25 @@ function renderUploads(){
   $('uploadHistoryBody').innerHTML=state.uploads.length?state.uploads.slice(0,100).map(u=>`<tr><td>${esc(dt(u.createdAt))}</td><td>${esc(u.kind||'-')}</td><td>${esc(u.fileName||u.files||'-')}</td><td>${esc(u.rows??'-')}</td><td>${esc(u.summary||'-')}</td></tr>`).join(''):'<tr><td colspan="5" class="muted">Belum ada import.</td></tr>';
 }
 function reportBaseFilteredRecords(){
-  const from=$('reportFrom').value,to=$('reportTo').value,q=text($('reportSearch').value).toLowerCase(),cat=$('reportState').value;
+  const from=$('reportFrom').value,to=$('reportTo').value,mode=$('reportDateMode')?.value||'order';
   return state.records.filter(r=>{
-    const d=r.order?.orderDate||r.income?.orderDate||'';if(from&&d<from)return false;if(to&&d>to)return false;if(cat!=='all'&&reportCategory(r)!==cat)return false;
-    const hay=[r.orderNo,r.order?.status,...productNames(r.order)].join(' ').toLowerCase();if(q&&!hay.includes(q))return false;return true;
+    if(!reportModeIncludes(r,mode))return false;
+    const d=reportDateForMode(r,mode);
+    if((from||to)&&!d)return false;
+    if(from&&d<from)return false;if(to&&d>to)return false;
+    if(!reportMatchesOrderStatus(r))return false;
+    if(!reportMatchesSearch(r))return false;
+    return true;
   });
 }
 function filteredReport(){
+  const mode=$('reportDateMode')?.value||'order';
   return reportBaseFilteredRecords().filter(r=>orderMatchesProducts(r.order,state.reportProducts))
-    .sort((a,b)=>String(b.order?.orderDate||b.income?.orderDate||'').localeCompare(String(a.order?.orderDate||a.income?.orderDate||''))||b.orderNo.localeCompare(a.orderNo));
+    .sort((a,b)=>String(reportDateForMode(b,mode)).localeCompare(String(reportDateForMode(a,mode)))||b.orderNo.localeCompare(a.orderNo));
 }
 function estimateForReport(r){return r.activeEstimate||historicalEstimate(r.order)||null;}
 function renderReport(){
+  configureReportDateMode();configureReportSearch();renderReportOrderStatusPicker();
   const productScope=reportBaseFilteredRecords();renderProductPicker('reportProductPicker',productScope,state.reportProducts,renderReport);
   const rows=filteredReport();$('reportCount').textContent=rows.length;
   const activeEstimateTotal=rows.reduce((s,r)=>s+(!r.income?(r.activeEstimate?.amount||0):0),0);
@@ -161,7 +216,7 @@ function renderReport(){
   $('reportBody').innerHTML=rows.length?rows.map(r=>{
     const est=estimateForReport(r),payout=r.paidBatchId?`${money(r.paidSnapshot)}<br><span class="muted">${esc(r.paidBatchId)}</span>`:'-';
     const corr=r.paidBatchId&&r.income?`<b class="${r.remainingCorrection>0?'money-positive':r.remainingCorrection<0?'money-negative':''}">${r.remainingCorrection>0?'+':''}${money(r.remainingCorrection)}</b>`:'-';
-    return `<tr><td><b>${esc(r.orderNo)}</b><br><span class="muted">${esc(r.order?.orderDate||r.income?.orderDate||'-')}</span></td><td>${productsHtml(r.order)}</td><td>${esc(r.order?.status||'-')}</td><td>${est?`<b>${money(est.amount)}</b><br><span class="badge estimate">${esc(sourceLabel(est))}</span>`:'-'}</td><td class="num">${r.income?`<b>${money(r.income.amount)}</b><br><span class="muted">${esc(r.income.releaseDate||'-')}</span>`:'-'}</td><td>${payout}</td><td class="num">${corr}</td><td>${stateBadge(r)}</td></tr>`;
+    const mode=$('reportDateMode')?.value||'order',basisDate=reportDateForMode(r,mode);return `<tr><td><b>${esc(r.orderNo)}</b><br><span class="muted">${esc(basisDate||'-')}</span></td><td>${productsHtml(r.order)}</td><td>${esc(r.order?.status||'-')}</td><td>${est?`<b>${money(est.amount)}</b><br><span class="badge estimate">${esc(sourceLabel(est))}</span>${est.source==='html'&&text(est.status)?`<br><span class="muted">${esc(est.status)}</span>`:''}`:'-'}</td><td class="num">${r.income?`<b>${money(r.income.amount)}</b><br><span class="muted">${esc(r.income.releaseDate||'-')}</span>`:'-'}</td><td>${payout}</td><td class="num">${corr}</td><td>${stateBadge(r)}</td></tr>`;
   }).join(''):'<tr><td colspan="8" class="muted">Tidak ada data.</td></tr>';
 }
 
@@ -294,7 +349,7 @@ async function createBatch(kind){
 
 function openBatchDetail(batchId){const b=state.batches.find(x=>x.batchId===batchId);if(!b)return;$('batchDetailTitle').textContent=b.batchId;$('batchDetailMeta').textContent=`${dt(b.createdAt)} · ${b.kind}`;const payout=b.payoutAmount||b.baseAmount+b.correctionAmount;$('batchDetailBody').innerHTML=`<div class="batch-detail-summary"><div><span>Dasar</span><strong>${money(b.baseAmount)}</strong></div><div><span>Koreksi</span><strong>${b.correctionAmount>0?'+':''}${money(b.correctionAmount)}</strong></div><div><span>Total Pencairan</span><strong>${money(payout)}</strong></div><div><span>Pesanan</span><strong>${b.items.length}</strong></div></div><h3>Pesanan</h3><div class="table-wrap"><table><thead><tr><th>No. Pesanan</th><th>Basis</th><th>Produk</th><th class="num">Snapshot</th></tr></thead><tbody>${b.items.map(i=>`<tr><td><b>${esc(i.orderNo)}</b></td><td><span class="badge ${i.basis==='estimate'?'estimate':'final'}">${esc(i.basis)}</span></td><td>${(i.products||[]).map(p=>`${esc(p.product||'-')} ${p.variation?`· ${esc(p.variation)}`:''}`).join('<br>')}</td><td class="num"><b>${money(i.amount)}</b></td></tr>`).join('')}</tbody></table></div>${b.corrections.length?`<h3>Koreksi yang diterapkan</h3><div class="table-wrap"><table><thead><tr><th>No. Pesanan</th><th class="num">Diterapkan</th></tr></thead><tbody>${b.corrections.map(c=>`<tr><td>${esc(c.orderNo)}</td><td class="num"><b class="${c.appliedAmount>0?'money-positive':'money-negative'}">${c.appliedAmount>0?'+':''}${money(c.appliedAmount)}</b></td></tr>`).join('')}</tbody></table></div>`:''}`;$('batchDetailDialog').showModal();}
 
-function exportReport(){const rows=filteredReport().map(r=>{const est=estimateForReport(r);return {'No. Pesanan':r.orderNo,'Produk / Variasi':(r.order?.items||[]).map(x=>`${x.product}${x.variation?` | ${x.variation}`:''}`).join(' ; '),'Status Order':r.order?.status||'','Estimasi':est?.amount||'','Sumber Estimasi':sourceLabel(est),'Final Income':r.income?.amount||'','Tanggal Dana Dilepas':r.income?.releaseDate||'','Batch':r.paidBatchId||'','Nominal Dicairkan':r.paidSnapshot||'','Koreksi Asli':r.originalCorrection||'','Koreksi Sudah Diterapkan':r.appliedCorrection||'','Sisa Koreksi':r.remainingCorrection||'','Status':r.state};});downloadXlsx(rows,`Laporan_Gabungan_${today()}.xlsx`,'Laporan');}
+function exportReport(){const rows=filteredReport().map(r=>{const est=estimateForReport(r);return {'No. Pesanan':r.orderNo,'Produk / Variasi':(r.order?.items||[]).map(x=>`${x.product}${x.variation?` | ${x.variation}`:''}`).join(' ; '),'Status Order (Excel)':r.order?.status||'','Status Pending (HTML)':reportHtmlEstimate(r)?.status||'','Estimasi':est?.amount||'','Sumber Estimasi':sourceLabel(est),'Final Income':r.income?.amount||'','Tanggal Dana Dilepas':r.income?.releaseDate||'','Batch':r.paidBatchId||'','Nominal Dicairkan':r.paidSnapshot||'','Koreksi Asli':r.originalCorrection||'','Koreksi Sudah Diterapkan':r.appliedCorrection||'','Sisa Koreksi':r.remainingCorrection||'','Status':r.state};});downloadXlsx(rows,`Laporan_Gabungan_${today()}.xlsx`,'Laporan');}
 function exportBatches(){const rows=[];for(const b of state.batches){for(const i of b.items)rows.push({'Batch':b.batchId,'Waktu':b.createdAt,'Jenis':b.kind,'Jenis Baris':'Pesanan','No. Pesanan':i.orderNo,'Basis':i.basis,'Nominal':i.amount,'Koreksi':'','Total Pencairan':b.payoutAmount||b.baseAmount+b.correctionAmount});for(const c of b.corrections)rows.push({'Batch':b.batchId,'Waktu':b.createdAt,'Jenis':b.kind,'Jenis Baris':'Koreksi','No. Pesanan':c.orderNo,'Basis':'koreksi','Nominal':'','Koreksi':c.appliedAmount,'Total Pencairan':b.payoutAmount||b.baseAmount+b.correctionAmount});}downloadXlsx(rows,`Riwayat_Batch_${today()}.xlsx`,'Batch');}
 function downloadXlsx(rows,filename,sheet){if(!rows.length){flash('Tidak ada data untuk diexport.','error');return;}const ws=XLSX.utils.json_to_sheet(rows),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,sheet);XLSX.writeFile(wb,filename);}
 
@@ -313,7 +368,7 @@ function bind(){
   $('importExcelBtn').addEventListener('click',async()=>{const of=$('orderFile').files[0],inf=$('incomeFile').files[0];if(!of&&!inf){setMessage('excelMessage','Pilih minimal satu file Excel.','warning');return;}try{state.busy=true;setMessage('excelMessage','Memproses Excel...','info');let parts=[];if(of){const r=await importOrderExcel(of);parts.push(`Order: ${r.rows} pesanan`);await loadAll({syncLedger:false});}if(inf){const r=await importIncomeExcel(inf);parts.push(`Income: ${r.rows} final, ${r.cleared} estimasi dibersihkan`);}await loadAll();setMessage('excelMessage',`${parts.join(' · ')}. Master berhasil diperbarui.`,'success');}catch(e){setMessage('excelMessage',esc(e.message),'warning');}finally{state.busy=false;}});
   $('pendingHtmlFile').addEventListener('change',e=>{$('importHtmlBtn').disabled=!e.target.files[0];if(e.target.files[0])setMessage('htmlMessage',`Siap import: <b>${esc(e.target.files[0].name)}</b>`,'info');});
   $('importHtmlBtn').addEventListener('click',async()=>{const f=$('pendingHtmlFile').files[0];if(!f)return;try{state.busy=true;const r=await importPendingHtml(f);await loadAll();setMessage('htmlMessage',`HTML dibaca ${r.rows} order: <b>${r.matched} cocok</b>, ${r.skippedFinal} diabaikan karena Final Excel sudah ada, ${r.skippedLocked} sudah dicairkan estimasi, ${r.unmatched} tidak ada di Master Order. Total nominal di HTML ${money(r.total)}.`,'success');}catch(e){setMessage('htmlMessage',esc(e.message),'warning');}finally{state.busy=false;}});
-  ['reportFrom','reportTo','reportState','reportSearch'].forEach(x=>$(x).addEventListener('input',renderReport));$('reportReset').addEventListener('click',()=>{$('reportFrom').value='';$('reportTo').value='';$('reportState').value='all';$('reportSearch').value='';state.reportProducts.clear();renderReport();});$('exportReportBtn').addEventListener('click',exportReport);
+  ['reportFrom','reportTo','reportSearch'].forEach(x=>$(x).addEventListener('input',renderReport));$('reportDateMode').addEventListener('change',()=>{configureReportDateMode();renderReport();});$('reportSearchMode').addEventListener('change',()=>{const input=$('reportSearch');input.value='';configureReportSearch();renderReport();});$('reportReset').addEventListener('click',()=>{$('reportDateMode').value='order';$('reportFrom').value='';$('reportTo').value='';$('reportSearchMode').value='all';$('reportSearch').value='';state.reportProducts.clear();state.reportOrderStatuses.clear();configureReportDateMode();configureReportSearch();renderReport();});$('exportReportBtn').addEventListener('click',exportReport);
   ['pendingFrom','pendingTo','pendingSearch'].forEach(x=>$(x).addEventListener('input',renderPending));$('pendingReset').addEventListener('click',()=>{$('pendingFrom').value='';$('pendingTo').value='';$('pendingSearch').value='';state.pendingProducts.clear();state.selectedPending.clear();renderPending();});$('pendingSelectAll').addEventListener('change',e=>{const rows=filteredPending().filter(r=>r.state==='pendingEstimated');rows.forEach(r=>e.target.checked?state.selectedPending.add(r.orderNo):state.selectedPending.delete(r.orderNo));renderPending();});$('createEstimateBatchBtn').addEventListener('click',()=>createBatch('estimate'));
   ['readyFrom','readyTo','readySearch'].forEach(x=>$(x).addEventListener('input',renderReady));$('readyReset').addEventListener('click',()=>{$('readyFrom').value='';$('readyTo').value='';$('readySearch').value='';state.readyProducts.clear();state.selectedReady.clear();renderReady();});$('readySelectAll').addEventListener('change',e=>{filteredReady().forEach(r=>e.target.checked?state.selectedReady.add(r.orderNo):state.selectedReady.delete(r.orderNo));renderReady();});$('createFinalBatchBtn').addEventListener('click',()=>createBatch('final'));
   $('saveEstimateBtn').addEventListener('click',saveManualEstimate);$('exportBatchBtn').addEventListener('click',exportBatches);$('syncLedgerBtn').addEventListener('click',()=>syncCorrectionLedger(true).catch(e=>flash(e.message,'error')));$('resetDbBtn').addEventListener('click',resetDatabase);
