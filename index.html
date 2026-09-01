@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#0f172a">
   <title>Shopee Payout Manager · Clean Rebuild</title>
-  <link rel="stylesheet" href="./styles.css?v=2.0.8">
+  <link rel="stylesheet" href="./styles.css?v=2.0.9">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -104,6 +104,7 @@
           <div class="card-head"><div><h2>Pending Pembayaran</h2><p>Hanya order non-batal yang belum mempunyai Income final. HTML/manual hanya estimasi sementara.</p></div></div>
           <div class="html-import-box"><div><strong>Upload HTML Pending Shopee</strong><span>Diproses lokal. HTML mentah tidak disimpan ke Firebase.</span></div><label class="btn primary file-button">Pilih HTML<input id="pendingHtmlFile" type="file" accept=".html,.htm,text/html"></label><button id="importHtmlBtn" class="btn success" type="button" disabled>Import HTML</button></div>
           <div id="htmlMessage" class="message info">Jika No. Pesanan sudah ada di Income Excel, data HTML otomatis diabaikan dan tidak bisa menghidupkan estimasi lagi.</div>
+          <div id="htmlReconcile" class="html-reconcile" hidden></div>
           <div class="summary-strip cols-4"><div><span>Pending</span><strong id="pendingCount">0</strong></div><div><span>Sudah Estimasi</span><strong id="pendingEstimatedCount">0</strong></div><div><span>Belum Estimasi</span><strong id="pendingNoEstimateCount">0</strong></div><div><span>Total Estimasi Aktif</span><strong id="pendingEstimateTotal">Rp0</strong></div></div>
           <div class="filters five"><label>Order dari<input id="pendingFrom" type="date"></label><label>Sampai<input id="pendingTo" type="date"></label><label>Cari<input id="pendingSearch" type="search" placeholder="No pesanan / produk"></label><div class="filter-action"><button id="pendingReset" class="btn ghost" type="button">Reset</button></div></div>
           <div id="pendingProductPicker" class="product-picker"></div>
@@ -155,6 +156,6 @@
 
   <dialog id="batchDetailDialog" class="modal"><form method="dialog" class="modal-shell"><header><div><h2 id="batchDetailTitle">Detail Batch</h2><p id="batchDetailMeta"></p></div><button class="icon-btn" value="cancel">×</button></header><div class="modal-body" id="batchDetailBody"></div><footer><button class="btn primary" value="cancel">Tutup</button></footer></form></dialog>
 
-  <script type="module" src="./app.js?v=2.0.8"></script>
+  <script type="module" src="./app.js?v=2.0.9"></script>
 </body>
 </html>

@@ -1,10 +1,8 @@
-# QA v2.0.8
+# QA v2.0.9
 
-- [x] app.js syntax check
-- [x] core.js syntax check
-- [x] Cache buster seluruh asset = 2.0.8
-- [x] HTML lama yang hilang dari snapshot dibersihkan
-- [x] Manual tidak ikut dibersihkan
-- [x] Locked/Batch estimasi tidak disentuh
-- [x] Income Excel tetap prioritas final
-- [x] Legacy shopeePending* dinolkan saat clear/update
+- [x] HTML snapshot tetap mengganti estimasi HTML aktif lama.
+- [x] Detail Tidak ada di Master menampilkan No. Pesanan + nominal.
+- [x] Detail Pending Master tidak ada di HTML terbaru menampilkan No. Pesanan + status.
+- [x] Final Excel / Batch tetap tidak ditimpa HTML.
+- [x] Estimasi manual tidak dihapus oleh cleanup snapshot.
+- [x] Detail rekonsiliasi tidak disimpan sebagai HTML mentah ke Firebase.

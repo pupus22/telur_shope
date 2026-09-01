@@ -5,7 +5,7 @@ import {
   APP_VERSION, SCHEMA_VERSION, text, num, isCancelled, safeDateOnly, fileEndDate, compareSourceDate,
   normalizeIncome, normalizeOrder, normalizeBatch, recordsFromMaps, buildPayoutItemMap,
   buildCorrectionAppliedMap, buildCorrectionPlan, historicalEstimate
-} from './core.js?v=2.0.8';
+} from './core.js?v=2.0.9';
 
 const FIREBASE_CONFIG={
   apiKey:'AIzaSyDYc-6mcJK4NgMfjFL4Xyew2hSixYv51As',
@@ -36,6 +36,24 @@ const id=prefix=>`${prefix}-${Date.now()}-${Math.random().toString(36).slice(2,7
 function setMessage(target,msg,type='info'){
   const el=typeof target==='string'?$(target):target;if(!el)return;
   el.className=`message ${type}`;el.innerHTML=msg;
+}
+function reconciliationDetails(title,items,{tone='info',showAmount=true,extra=null}={}){
+  if(!items?.length)return '';
+  const total=showAmount?items.reduce((s,x)=>s+(Number(x.amount)||0),0):0;
+  return `<details class="recon-group ${tone}" ${items.length<=3?'open':''}><summary><span>${esc(title)}</span><b>${items.length}${showAmount?` · ${money(total)}`:''}</b></summary><div class="recon-list">${items.map(x=>`<div class="recon-row"><div><b>${esc(x.orderNo||'-')}</b>${x.status?`<span>${esc(x.status)}</span>`:''}${x.note?`<span>${esc(x.note)}</span>`:''}</div>${showAmount?`<strong>${money(x.amount)}</strong>`:''}</div>`).join('')}</div>${extra?`<div class="recon-note">${extra}</div>`:''}</details>`;
+}
+function renderHtmlReconciliation(r){
+  const el=$('htmlReconcile');if(!el)return;
+  const groups=[
+    reconciliationDetails('Tidak ada di Master Order',r.unmatchedItems,{tone:'warning'}),
+    reconciliationDetails('Pending di Master tetapi tidak ada di HTML terbaru',r.pendingMissingItems,{tone:'warning',showAmount:true,extra:'Order ini tetap ada di Master, tetapi tidak muncul pada snapshot HTML terbaru. Jika memang belum dibayar pembeli, kondisi ini normal.'}),
+    reconciliationDetails('Estimasi HTML lama yang dibersihkan',r.clearedItems,{tone:'info'}),
+    reconciliationDetails('Diabaikan karena Final Excel sudah ada',r.skippedFinalItems,{tone:'success'}),
+    reconciliationDetails('Sudah dicairkan berdasarkan estimasi',r.skippedLockedItems,{tone:'info'})
+  ].filter(Boolean);
+  const eligibleTotal=(Number(r.total)||0)-(Number(r.unmatchedTotal)||0)-(Number(r.skippedFinalTotal)||0)-(Number(r.skippedLockedTotal)||0)-(Number(r.cancelledTotal)||0);
+  el.innerHTML=`<div class="recon-head"><div><strong>Rekonsiliasi HTML terbaru</strong><span>Bandingkan snapshot HTML dengan Master Order tanpa menghitung manual.</span></div><div class="recon-metrics"><span>File HTML <b>${money(r.total)}</b></span><span>Eligible ke estimasi <b>${money(eligibleTotal)}</b></span></div></div>${groups.join('')||'<div class="recon-ok">Semua order HTML cocok dengan Master dan tidak ada Pending Master yang hilang dari snapshot.</div>'}`;
+  el.hidden=false;
 }
 function flash(msg,type='info'){
   const el=$('globalMessage');el.hidden=false;el.textContent=msg;
@@ -356,6 +374,7 @@ async function importPendingHtml(file){
   const incomingIds=new Set([...uniqueMap.values()].filter(x=>Number(x.amount)>0).map(x=>x.orderNo));
   let matched=0,unchanged=0,unmatched=0,skippedFinal=0,skippedLocked=0,cancelled=0,clearedOldHtml=0;
   const timestamp=nowIso(),updates=[],clears=[];
+  const unmatchedItems=[],skippedFinalItems=[],skippedLockedItems=[],cancelledItems=[],clearedItems=[];
 
   // HTML Pending adalah snapshot terbaru. Estimasi HTML aktif yang tidak lagi ada
   // di snapshot terbaru harus hilang. Manual dan snapshot Batch tidak disentuh.
@@ -375,14 +394,18 @@ async function importPendingHtml(file){
       shopeePendingSourceFile:'',
       shopeePendingImportedAt:''
     };
-    // Simpan hanya sebagai histori, bukan estimasi aktif.
     if(!rawOld.lastEstimate)patch.lastEstimate=current;
     clears.push({orderNo,patch});clearedOldHtml++;
+    clearedItems.push({orderNo,amount:Number(current.amount)||0,status:text(o.status),note:'Tidak ada lagi pada HTML terbaru'});
   }
 
   for(const x of uniqueMap.values()){
     const o=state.orders.get(x.orderNo),inc=state.incomes.get(x.orderNo);
-    if(inc){skippedFinal++;continue;}if(!o){unmatched++;continue;}if(isCancelled(o.status)){cancelled++;continue;}if(o.payoutLock||o.estimateBatchId){skippedLocked++;continue;}if(x.amount<=0)continue;
+    if(inc){skippedFinal++;skippedFinalItems.push({orderNo:x.orderNo,amount:x.amount,status:x.status,note:`Final Excel ${money(inc.amount)}`});continue;}
+    if(!o){unmatched++;unmatchedItems.push({orderNo:x.orderNo,amount:x.amount,status:x.status,note:'Tidak ditemukan di Master Order'});continue;}
+    if(isCancelled(o.status)){cancelled++;cancelledItems.push({orderNo:x.orderNo,amount:x.amount,status:o.status,note:'Status Order batal'});continue;}
+    if(o.payoutLock||o.estimateBatchId){skippedLocked++;skippedLockedItems.push({orderNo:x.orderNo,amount:x.amount,status:o.status,note:o.payoutLock?.batchId||o.estimateBatchId||'Sudah dicairkan'});continue;}
+    if(x.amount<=0)continue;
     const current=o.pendingEstimate;
     if(current?.source==='html'&&Number(current.amount)===Number(x.amount)&&text(current.status)===text(x.status)&&text(current.releaseEstimate)===text(x.releaseEstimate)&&text(current.paymentMethod)===text(x.paymentMethod)){matched++;unchanged++;continue;}
     const patch={
@@ -402,9 +425,22 @@ async function importPendingHtml(file){
   for(let i=0;i<writes.length;i+=400){const wb=writeBatch(db);writes.slice(i,i+400).forEach(x=>wb.set(doc(db,C.orders,x.orderNo),x.patch,{merge:true}));await wb.commit();}
   for(const x of writes){const rawOld=state.rawOrders.get(x.orderNo)||{orderNo:x.orderNo};state.rawOrders.set(x.orderNo,{...rawOld,...x.patch});}
   rebuildState({render:false,save:false});
-  await logUpload({kind:'HTML Pending',fileName:file.name,rows:uniqueMap.size,summary:`Snapshot terbaru: ${matched} cocok (${unchanged} tidak berubah), ${clearedOldHtml} estimasi HTML lama dibersihkan, ${unmatched} tanpa Order, ${skippedFinal} sudah Final Excel, ${skippedLocked} sudah dicairkan estimasi`});
+
+  // Sesudah snapshot diterapkan, cari Master Pending yang tidak muncul pada HTML terbaru.
+  const pendingMissingItems=state.records
+    .filter(r=>(r.state==='pendingEstimated'||r.state==='pendingUnestimated')&&!incomingIds.has(r.orderNo))
+    .map(r=>({orderNo:r.orderNo,amount:Number(r.activeEstimate?.amount)||0,status:text(r.order?.status),note:r.activeEstimate?`Estimasi aktif: ${sourceLabel(r.activeEstimate)}`:'Belum ada estimasi'}))
+    .sort((a,b)=>a.orderNo.localeCompare(b.orderNo));
+
+  await logUpload({kind:'HTML Pending',fileName:file.name,rows:uniqueMap.size,summary:`Snapshot terbaru: ${matched} cocok (${unchanged} tidak berubah), ${clearedOldHtml} estimasi HTML lama dibersihkan, ${unmatched} tanpa Order, ${skippedFinal} sudah Final Excel, ${skippedLocked} sudah dicairkan estimasi, ${pendingMissingItems.length} Pending Master tidak ada di HTML`});
   rebuildState({render:true,save:true});
-  return {rows:uniqueMap.size,matched,unchanged,clearedOldHtml,unmatched,skippedFinal,skippedLocked,cancelled,total:[...uniqueMap.values()].reduce((s,x)=>s+x.amount,0)};
+  const sum=arr=>arr.reduce((s,x)=>s+(Number(x.amount)||0),0);
+  return {
+    rows:uniqueMap.size,matched,unchanged,clearedOldHtml,unmatched,skippedFinal,skippedLocked,cancelled,
+    total:[...uniqueMap.values()].reduce((s,x)=>s+x.amount,0),
+    unmatchedItems,pendingMissingItems,clearedItems,skippedFinalItems,skippedLockedItems,cancelledItems,
+    unmatchedTotal:sum(unmatchedItems),skippedFinalTotal:sum(skippedFinalItems),skippedLockedTotal:sum(skippedLockedItems),cancelledTotal:sum(cancelledItems)
+  };
 }
 
 function openEstimateDialog(orderNo){const r=state.records.find(x=>x.orderNo===orderNo);if(!r||!r.order||r.income||r.order.payoutLock)return;state.editingEstimate=orderNo;$('estimateOrderNo').textContent=orderNo;const current=r.activeEstimate;setMessage('estimateMessage',current?.source==='html'?`Estimasi HTML saat ini <b>${money(current.amount)}</b>. Menyimpan manual akan mengganti estimasi aktif. Upload HTML berikutnya dapat memperbaruinya lagi.`:'Masukkan estimasi per unit. Nilai ini hanya sementara sampai Income Excel muncul.','info');
@@ -481,7 +517,7 @@ function bind(){
   $('clearExcelBtn').addEventListener('click',()=>{$('orderFile').value='';$('incomeFile').value='';$('orderFileName').textContent='Belum dipilih';$('incomeFileName').textContent='Belum dipilih';});
   $('importExcelBtn').addEventListener('click',async()=>{const of=$('orderFile').files[0],inf=$('incomeFile').files[0];if(!of&&!inf){setMessage('excelMessage','Pilih minimal satu file Excel.','warning');return;}try{state.busy=true;setMessage('excelMessage','Memproses Excel...','info');let parts=[];if(of){const r=await importOrderExcel(of);parts.push(`Order: ${r.rows} pesanan`);}if(inf){const r=await importIncomeExcel(inf);parts.push(`Income: ${r.rows} final, ${r.cleared} estimasi dibersihkan`);}rebuildState({render:true,save:true});setMessage('excelMessage',`${parts.join(' · ')}. Master diperbarui tanpa membaca ulang seluruh Firebase.`,'success');}catch(e){setMessage('excelMessage',esc(e.message),'warning');}finally{state.busy=false;}});
   $('pendingHtmlFile').addEventListener('change',e=>{$('importHtmlBtn').disabled=!e.target.files[0];if(e.target.files[0])setMessage('htmlMessage',`Siap import: <b>${esc(e.target.files[0].name)}</b>`,'info');});
-  $('importHtmlBtn').addEventListener('click',async()=>{const f=$('pendingHtmlFile').files[0];if(!f)return;try{state.busy=true;const r=await importPendingHtml(f);setMessage('htmlMessage',`HTML snapshot dibaca ${r.rows} order: <b>${r.matched} cocok</b>, <b>${r.clearedOldHtml} estimasi HTML lama dibersihkan</b>, ${r.skippedFinal} diabaikan karena Final Excel sudah ada, ${r.skippedLocked} sudah dicairkan estimasi, ${r.unmatched} tidak ada di Master Order. Total nominal file HTML ${money(r.total)}.`,'success');}catch(e){setMessage('htmlMessage',esc(e.message),'warning');}finally{state.busy=false;}});
+  $('importHtmlBtn').addEventListener('click',async()=>{const f=$('pendingHtmlFile').files[0];if(!f)return;try{state.busy=true;const r=await importPendingHtml(f);setMessage('htmlMessage',`HTML snapshot dibaca ${r.rows} order: <b>${r.matched} cocok</b>, <b>${r.clearedOldHtml} estimasi HTML lama dibersihkan</b>, ${r.skippedFinal} diabaikan karena Final Excel sudah ada, ${r.skippedLocked} sudah dicairkan estimasi, ${r.unmatched} tidak ada di Master Order, <b>${r.pendingMissingItems.length} Pending Master tidak ada di HTML terbaru</b>. Total nominal file HTML ${money(r.total)}.`,'success');renderHtmlReconciliation(r);}catch(e){setMessage('htmlMessage',esc(e.message),'warning');const x=$('htmlReconcile');if(x)x.hidden=true;}finally{state.busy=false;}});
   ['reportFrom','reportTo','reportSearch'].forEach(x=>$(x).addEventListener('input',renderReport));$('reportDateMode').addEventListener('change',()=>{configureReportDateMode();renderReport();});$('reportSearchMode').addEventListener('change',()=>{const input=$('reportSearch');input.value='';configureReportSearch();renderReport();});$('reportReset').addEventListener('click',()=>{$('reportDateMode').value='order';$('reportFrom').value='';$('reportTo').value='';$('reportSearchMode').value='all';$('reportSearch').value='';state.reportProducts.clear();state.reportOrderStatuses.clear();configureReportDateMode();configureReportSearch();renderReport();});$('exportReportBtn').addEventListener('click',exportReport);
   ['pendingFrom','pendingTo','pendingSearch'].forEach(x=>$(x).addEventListener('input',renderPending));$('pendingReset').addEventListener('click',()=>{$('pendingFrom').value='';$('pendingTo').value='';$('pendingSearch').value='';state.pendingProducts.clear();state.selectedPending.clear();renderPending();});$('pendingSelectAll').addEventListener('change',e=>{const rows=filteredPending().filter(r=>r.state==='pendingEstimated');rows.forEach(r=>e.target.checked?state.selectedPending.add(r.orderNo):state.selectedPending.delete(r.orderNo));renderPending();});$('createEstimateBatchBtn').addEventListener('click',()=>createBatch('estimate'));
   ['readyFrom','readyTo','readySearch'].forEach(x=>$(x).addEventListener('input',renderReady));$('readyReset').addEventListener('click',()=>{$('readyFrom').value='';$('readyTo').value='';$('readySearch').value='';state.readyProducts.clear();state.selectedReady.clear();renderReady();});$('readySelectAll').addEventListener('change',e=>{filteredReady().forEach(r=>e.target.checked?state.selectedReady.add(r.orderNo):state.selectedReady.delete(r.orderNo));renderReady();});$('createFinalBatchBtn').addEventListener('click',()=>createBatch('final'));
