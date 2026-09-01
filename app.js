@@ -5,7 +5,7 @@ import {
   APP_VERSION, SCHEMA_VERSION, text, num, isCancelled, safeDateOnly, fileEndDate, compareSourceDate,
   normalizeIncome, normalizeOrder, normalizeBatch, recordsFromMaps, buildPayoutItemMap,
   buildCorrectionAppliedMap, buildCorrectionPlan, historicalEstimate
-} from './core.js';
+} from './core.js?v=2.0.6.1';
 
 const FIREBASE_CONFIG={
   apiKey:'AIzaSyDYc-6mcJK4NgMfjFL4Xyew2hSixYv51As',
