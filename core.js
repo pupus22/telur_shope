@@ -1,4 +1,4 @@
-export const APP_VERSION = '2.1.1';
+export const APP_VERSION = '2.1.2';
 export const SCHEMA_VERSION = 2;
 
 export function text(v){ return String(v ?? '').trim(); }

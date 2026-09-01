@@ -1,12 +1,12 @@
-# QA v2.1.0
+# QA v2.1.2
 
-- Login: Firebase Auth saja; tidak ada Firestore read otomatis.
-- Upload Order Excel: lokal, dirty queue bertambah, pindah halaman data tetap ada.
-- Upload Income Excel: lokal; estimasi aktif order final dibersihkan lokal.
-- Import HTML: snapshot lokal; estimasi HTML lama dibersihkan lokal.
-- Manual estimate: lokal.
-- Batch estimasi/final: snapshot lokal dan dirty queue.
-- Refresh topbar dihapus.
-- Sinkronisasi Firestore hanya tombol Pengaturan.
-- Timestamp sinkron terakhir tampil setelah sukses.
-- Sync gagal: dirty queue dan cache lokal tetap ada.
+- auth.js syntax: checked
+- app.js syntax: checked
+- core.js syntax: checked
+- Login button/form IDs: checked
+- Login separated from Firestore: checked
+- Firestore only dynamic-imported through manual sync path: checked
+- Admin UID unchanged: checked
+- Firebase config unchanged: checked
+- app.js loaded only after authorized Auth state: checked
+- Local cache survives page navigation/reload: unchanged

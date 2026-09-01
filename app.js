@@ -1,23 +1,21 @@
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js';
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';
-import { getFirestore, collection, doc, getDocs, writeBatch, query, orderBy, limit } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 import {
   APP_VERSION, SCHEMA_VERSION, text, num, isCancelled, safeDateOnly, fileEndDate, compareSourceDate,
   normalizeIncome, normalizeOrder, normalizeBatch, recordsFromMaps, buildPayoutItemMap,
   buildCorrectionAppliedMap, buildCorrectionPlan, historicalEstimate
-} from './core.js?v=2.1.1';
+} from './core.js?v=2.1.2';
 
-const FIREBASE_CONFIG={
-  apiKey:'AIzaSyDYc-6mcJK4NgMfjFL4Xyew2hSixYv51As',
-  authDomain:'shopee-payout-b62c3.firebaseapp.com',
-  projectId:'shopee-payout-b62c3',
-  storageBucket:'shopee-payout-b62c3.firebasestorage.app',
-  messagingSenderId:'472652935238',
-  appId:'1:472652935238:web:d49c26f38b471c5e69da47'
-};
 const ADMIN_UID='ISAloBhuHVQwGKzwVLpOXKMcstn2';
 const C={orders:'orders',incomes:'incomes',batches:'batches',uploads:'uploads',ledger:'correction_ledger'};
-const firebaseApp=initializeApp(FIREBASE_CONFIG), auth=getAuth(firebaseApp), db=getFirestore(firebaseApp);
+let firebaseApp=null, auth=null, authSignOut=null, firestoreDb=null, firestoreApi=null, appBound=false;
+
+async function ensureFirestore(){
+  if(!firebaseApp)throw new Error('Firebase App belum siap. Login ulang.');
+  if(!firestoreApi){
+    firestoreApi=await import('https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js');
+    firestoreDb=firestoreApi.getFirestore(firebaseApp);
+  }
+  return {...firestoreApi,db:firestoreDb};
+}
 
 const state={
   rawOrders:new Map(), rawIncomes:new Map(), orders:new Map(), incomes:new Map(), batches:[], uploads:[], ledger:new Map(), records:[],
@@ -177,18 +175,21 @@ function loadCache(){
   }catch(e){console.warn('Cache lokal rusak:',e);return false;}
 }
 function clearCache(){try{localStorage.removeItem(CACHE_KEY);}catch{}state.cacheLoaded=false;}
-async function readCollection(name){assertAdmin();const snap=await getDocs(collection(db,name));return snap.docs.map(d=>({id:d.id,...d.data()}));}
+async function readCollection(name){
+  assertAdmin();const {getDocs,collection,db}=await ensureFirestore();
+  const snap=await getDocs(collection(db,name));return snap.docs.map(d=>({id:d.id,...d.data()}));
+}
 async function readRecentUploads(){
   assertAdmin();
-  try{const snap=await getDocs(query(collection(db,C.uploads),orderBy('createdAt','desc'),limit(CACHE_MAX_UPLOADS)));return snap.docs.map(d=>({id:d.id,...d.data()}));}
+  try{const {getDocs,collection,query,orderBy,limit,db}=await ensureFirestore();const snap=await getDocs(query(collection(db,C.uploads),orderBy('createdAt','desc'),limit(CACHE_MAX_UPLOADS)));return snap.docs.map(d=>({id:d.id,...d.data()}));}
   catch(e){console.warn('Gagal membaca log terbaru:',e);return [];}
 }
 async function deleteCollectionServer(name){
-  const snap=await getDocs(collection(db,name));const refs=snap.docs.map(d=>d.ref);
+  const {getDocs,collection,writeBatch,db}=await ensureFirestore();const snap=await getDocs(collection(db,name));const refs=snap.docs.map(d=>d.ref);
   for(let i=0;i<refs.length;i+=350){const wb=writeBatch(db);refs.slice(i,i+350).forEach(r=>wb.delete(r));await wb.commit();}
 }
 async function pushDirtyDocs(){
-  const jobs=[];
+  const {writeBatch,doc,db}=await ensureFirestore();const jobs=[];
   for(const orderNo of state.dirty.orders){const data=state.rawOrders.get(orderNo);if(data)jobs.push({col:C.orders,id:orderNo,data});}
   for(const orderNo of state.dirty.incomes){const data=state.rawIncomes.get(orderNo);if(data)jobs.push({col:C.incomes,id:orderNo,data});}
   for(const batchId of state.dirty.batches){const data=state.batches.find(x=>x.batchId===batchId);if(data)jobs.push({col:C.batches,id:batchId,data});}
@@ -530,21 +531,7 @@ async function resetDatabase(){
 
 
 function bind(){
-  $('loginForm').addEventListener('submit',async e=>{
-    e.preventDefault();
-    setMessage('loginMessage','Memeriksa akun...','info');
-    try{
-      const cred=await signInWithEmailAndPassword(auth,$('loginEmail').value.trim(),$('loginPassword').value);
-      if(cred.user.uid!==ADMIN_UID){
-        await signOut(auth);
-        throw new Error('Akun ini bukan admin aplikasi.');
-      }
-      setMessage('loginMessage','Login berhasil. Membuka data lokal...','success');
-    }catch(err){
-      setMessage('loginMessage',esc(err?.message||String(err)),'warning');
-    }
-  });
-  $('logoutBtn').addEventListener('click',()=>signOut(auth));
+  $('logoutBtn').addEventListener('click',()=>authSignOut?.(auth));
 
   $$('[data-view]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));
   $('drawerOpen').addEventListener('click',openDrawer);
@@ -612,12 +599,14 @@ function bind(){
   $('resetDbBtn').addEventListener('click',resetDatabase);
 }
 
-bind();
-onAuthStateChanged(auth,async user=>{
-  if(user&&user.uid===ADMIN_UID){
-    $('authGate').hidden=true;$('appShell').hidden=false;$('accountEmail').textContent=user.email||user.uid;
-    const cached=loadCache();
-    if(cached){$('firebaseStatus').textContent=dirtyCount()?`Lokal · ${dirtyCount()} belum sinkron`:'Lokal · tersimpan';renderAll();flash('Data dibuka dari penyimpanan lokal. Firebase hanya digunakan saat Sinkronkan Sekarang ditekan.','success');}
-    else{$('firebaseStatus').textContent='Lokal kosong · belum sinkron';renderAll();flash('Belum ada data lokal. Buka Pengaturan → Sinkronkan Sekarang untuk mengambil data Firebase, atau upload Excel untuk mulai lokal.','success');}
-  }else{$('authGate').hidden=false;$('appShell').hidden=true;if(user)await signOut(auth);}
-});
+
+export async function startApp(ctx){
+  firebaseApp=ctx?.firebaseApp||null;auth=ctx?.auth||null;authSignOut=ctx?.signOut||null;
+  const user=ctx?.user||auth?.currentUser;
+  if(!user||user.uid!==ADMIN_UID)throw new Error('Sesi admin tidak valid.');
+  if(!appBound){bind();appBound=true;}
+  $('authGate').hidden=true;$('appShell').hidden=false;$('accountEmail').textContent=user.email||user.uid;
+  const cached=loadCache();
+  if(cached){$('firebaseStatus').textContent=dirtyCount()?`Lokal · ${dirtyCount()} belum sinkron`:'Lokal · tersimpan';renderAll();flash('Data dibuka dari penyimpanan lokal. Firebase hanya digunakan saat Sinkronkan Sekarang ditekan.','success');}
+  else{$('firebaseStatus').textContent='Lokal kosong · belum sinkron';renderAll();flash('Belum ada data lokal. Buka Pengaturan → Sinkronkan Sekarang untuk mengambil data Firebase, atau upload Excel untuk mulai lokal.','success');}
+}

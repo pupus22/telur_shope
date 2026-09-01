@@ -1,5 +1,11 @@
-# Shopee Payout Manager v2.1.0 — Local First / Manual Sync
+# Shopee Payout Manager v2.1.2
 
-Semua upload Excel, HTML Pending, estimasi manual, dan Batch disimpan ke localStorage terlebih dahulu. Tidak ada read/write Firestore otomatis setelah login. Satu-satunya sinkronisasi data Firestore dilakukan lewat tombol **Sinkronkan Sekarang** di Pengaturan.
+## Login architecture fix
+- Firebase Authentication dipisahkan ke `auth.js`.
+- `app.js` baru dimuat setelah UID admin lolos.
+- Firestore SDK tidak dimuat saat login; baru dimuat ketika tombol Sinkronkan Sekarang dipakai.
+- Login menampilkan kode error Firebase yang sebenarnya jika gagal.
+- Persistence Auth dipaksa `browserLocalPersistence`.
+- Local-first/manual-sync tetap dipertahankan.
 
-Sinkron manual mengirim perubahan lokal yang tertunda, lalu mengambil snapshot server terbaru dan mencatat tanggal/jam sinkron terakhir. Bila sinkron gagal/quota habis, perubahan lokal tetap tersimpan.
+Deploy: index.html, auth.js, app.js, core.js, styles.css.
