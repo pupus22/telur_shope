@@ -2,7 +2,7 @@ import {
   APP_VERSION, SCHEMA_VERSION, text, num, isCancelled, safeDateOnly, fileEndDate, compareSourceDate,
   normalizeIncome, normalizeOrder, normalizeBatch, recordsFromMaps, buildPayoutItemMap,
   buildCorrectionAppliedMap, buildCorrectionPlan, historicalEstimate
-} from './core-2.1.4.js';
+} from './core-2.1.6.js';
 
 const ADMIN_UID='ISAloBhuHVQwGKzwVLpOXKMcstn2';
 const C={orders:'orders',incomes:'incomes',batches:'batches',uploads:'uploads',ledger:'correction_ledger'};
@@ -19,7 +19,7 @@ async function ensureFirestore(){
 
 const state={
   rawOrders:new Map(), rawIncomes:new Map(), orders:new Map(), incomes:new Map(), batches:[], uploads:[], ledger:new Map(), records:[],
-  selectedPending:new Set(), selectedReady:new Set(), reportProducts:new Set(), reportOrderStatuses:new Set(), pendingProducts:new Set(), readyProducts:new Set(), editingEstimate:null,
+  selectedPending:new Set(), selectedReady:new Set(), reportProducts:new Set(), reportOrderStatuses:new Set(), reportPayoutStatuses:new Set(), pendingProducts:new Set(), readyProducts:new Set(), editingEstimate:null,
   dirty:{orders:new Set(),incomes:new Set(),batches:new Set(),uploads:new Set(),ledger:new Set()},
   busy:false, cacheLoaded:false, lastServerSync:'', pendingFullReset:false
 };
@@ -82,6 +82,8 @@ function reportCategory(r){
   if(r.state==='cancelledWithIncome'||r.state==='incomeOnly'||r.state==='orderStatusUnknown'||r.state==='incomeNonPositive')return 'held';return 'other';
 }
 function reportHtmlEstimate(r){
+  // Begitu Final Income Excel tersedia, HTML hanya menjadi acuan lama dan tidak lagi ditampilkan di Laporan Gabungan.
+  if(r?.income)return null;
   const candidates=[r?.activeEstimate,historicalEstimate(r?.order),r?.order?.lastEstimate,r?.order?.pendingEstimate].filter(Boolean);
   return candidates.find(x=>x?.source==='html')||null;
 }
@@ -100,6 +102,29 @@ function renderReportOrderStatusPicker(){
 function reportMatchesOrderStatus(r){
   if(!state.reportOrderStatuses.size)return true;
   return !!r.order&&state.reportOrderStatuses.has(text(r.order.status));
+}
+function payoutFilterKey(r){
+  // Tiga kelompok operasional yang saling eksklusif untuk Laporan Gabungan.
+  // Pending = belum punya Final Income dan belum pernah dicairkan.
+  // Siap Dicairkan = sudah punya Final Income Excel dan belum pernah dicairkan.
+  // Sudah Dicairkan = sudah tercatat di Batch, termasuk Batch Estimasi yang masih menunggu Final.
+  if(r?.paidBatchId||r?.state==='paidEstimateAwaitingFinal'||r?.state==='paidFinalKnown')return 'paid';
+  if(r?.state==='readyFinal')return 'ready';
+  if(r?.state==='pendingEstimated'||r?.state==='pendingUnestimated')return 'pending';
+  return '';
+}
+function payoutFilterLabel(key){return key==='paid'?'Sudah Dicairkan':key==='ready'?'Siap Dicairkan':key==='pending'?'Pending':'';}
+function renderReportPayoutStatusPicker(){
+  const el=$('reportPayoutStatusPicker');if(!el)return;
+  const options=[['pending','Pending'],['ready','Siap Dicairkan'],['paid','Sudah Dicairkan']];
+  el.innerHTML=`<div class="product-picker-head"><strong>Status Pencairan <span class="muted">· kosong = semua</span></strong><div><button class="btn ghost picker-none" type="button">Kosongkan</button></div></div><div class="product-checks status-checks">${options.map(([k,l])=>`<label><input type="checkbox" value="${k}" ${state.reportPayoutStatuses.has(k)?'checked':''}>${l}</label>`).join('')}</div>`;
+  el.querySelectorAll('input[type=checkbox]').forEach(c=>c.addEventListener('change',()=>{c.checked?state.reportPayoutStatuses.add(c.value):state.reportPayoutStatuses.delete(c.value);renderReport();}));
+  el.querySelector('.picker-none')?.addEventListener('click',()=>{state.reportPayoutStatuses.clear();renderReport();});
+}
+function reportMatchesPayoutStatus(r){
+  if(!state.reportPayoutStatuses.size)return true;
+  const key=payoutFilterKey(r);
+  return !!key&&state.reportPayoutStatuses.has(key);
 }
 function configureReportDateMode(){
   const mode=$('reportDateMode')?.value||'order',fromLabel=$('reportFromLabel'),toLabel=$('reportToLabel');
@@ -258,6 +283,7 @@ function reportBaseFilteredRecords(){
     if((from||to)&&!d)return false;
     if(from&&d<from)return false;if(to&&d>to)return false;
     if(!reportMatchesOrderStatus(r))return false;
+    if(!reportMatchesPayoutStatus(r))return false;
     if(!reportMatchesSearch(r))return false;
     return true;
   });
@@ -267,9 +293,13 @@ function filteredReport(){
   return reportBaseFilteredRecords().filter(r=>orderMatchesProducts(r.order,state.reportProducts))
     .sort((a,b)=>String(reportDateForMode(b,mode)).localeCompare(String(reportDateForMode(a,mode)))||b.orderNo.localeCompare(a.orderNo));
 }
-function estimateForReport(r){return r.activeEstimate||historicalEstimate(r.order)||null;}
+function estimateForReport(r){
+  // Excel final selalu menang. Riwayat estimasi tetap tersimpan untuk audit/koreksi, tetapi tidak ditampilkan bila Final Income sudah ada.
+  if(r?.income)return null;
+  return r.activeEstimate||historicalEstimate(r.order)||null;
+}
 function renderReport(){
-  configureReportDateMode();configureReportSearch();renderReportOrderStatusPicker();
+  configureReportDateMode();configureReportSearch();renderReportOrderStatusPicker();renderReportPayoutStatusPicker();
   const productScope=reportBaseFilteredRecords();renderProductPicker('reportProductPicker',productScope,state.reportProducts,renderReport);
   const rows=filteredReport();$('reportCount').textContent=rows.length;
   const activeEstimateTotal=rows.reduce((s,r)=>s+(!r.income?(r.activeEstimate?.amount||0):0),0);
@@ -519,7 +549,7 @@ Batch disimpan lokal dan baru dikirim ke Firebase saat Sinkronkan Sekarang ditek
 
 function openBatchDetail(batchId){const b=state.batches.find(x=>x.batchId===batchId);if(!b)return;$('batchDetailTitle').textContent=b.batchId;$('batchDetailMeta').textContent=`${dt(b.createdAt)} · ${b.kind}`;const payout=b.payoutAmount||b.baseAmount+b.correctionAmount;$('batchDetailBody').innerHTML=`<div class="batch-detail-summary"><div><span>Dasar</span><strong>${money(b.baseAmount)}</strong></div><div><span>Koreksi</span><strong>${b.correctionAmount>0?'+':''}${money(b.correctionAmount)}</strong></div><div><span>Total Pencairan</span><strong>${money(payout)}</strong></div><div><span>Pesanan</span><strong>${b.items.length}</strong></div></div><h3>Pesanan</h3><div class="table-wrap"><table><thead><tr><th>No. Pesanan</th><th>Basis</th><th>Produk</th><th class="num">Snapshot</th></tr></thead><tbody>${b.items.map(i=>`<tr><td><b>${esc(i.orderNo)}</b></td><td><span class="badge ${i.basis==='estimate'?'estimate':'final'}">${esc(i.basis)}</span></td><td>${(i.products||[]).map(p=>`${esc(p.product||'-')} ${p.variation?`· ${esc(p.variation)}`:''}`).join('<br>')}</td><td class="num"><b>${money(i.amount)}</b></td></tr>`).join('')}</tbody></table></div>${b.corrections.length?`<h3>Koreksi yang diterapkan</h3><div class="table-wrap"><table><thead><tr><th>No. Pesanan</th><th class="num">Diterapkan</th></tr></thead><tbody>${b.corrections.map(c=>`<tr><td>${esc(c.orderNo)}</td><td class="num"><b class="${c.appliedAmount>0?'money-positive':'money-negative'}">${c.appliedAmount>0?'+':''}${money(c.appliedAmount)}</b></td></tr>`).join('')}</tbody></table></div>`:''}`;$('batchDetailDialog').showModal();}
 
-function exportReport(){const rows=filteredReport().map(r=>{const est=estimateForReport(r);return {'No. Pesanan':r.orderNo,'Produk / Variasi':(r.order?.items||[]).map(x=>`${x.product}${x.variation?` | ${x.variation}`:''}`).join(' ; '),'Status Order (Excel)':r.order?.status||'','Status Pending (HTML)':reportHtmlEstimate(r)?.status||'','Estimasi':est?.amount||'','Sumber Estimasi':sourceLabel(est),'Final Income':r.income?.amount||'','Tanggal Dana Dilepas':r.income?.releaseDate||'','Batch':r.paidBatchId||'','Nominal Dicairkan':r.paidSnapshot||'','Koreksi Asli':r.originalCorrection||'','Koreksi Sudah Diterapkan':r.appliedCorrection||'','Sisa Koreksi':r.remainingCorrection||'','Status':r.state};});downloadXlsx(rows,`Laporan_Gabungan_${today()}.xlsx`,'Laporan');}
+function exportReport(){const rows=filteredReport().map(r=>{const est=estimateForReport(r);return {'No. Pesanan':r.orderNo,'Produk / Variasi':(r.order?.items||[]).map(x=>`${x.product}${x.variation?` | ${x.variation}`:''}`).join(' ; '),'Status Order (Excel)':r.order?.status||'','Status Pending (HTML)':reportHtmlEstimate(r)?.status||'','Estimasi':est?.amount||'','Sumber Estimasi':est?sourceLabel(est):'','Final Income':r.income?.amount||'','Tanggal Dana Dilepas':r.income?.releaseDate||'','Batch':r.paidBatchId||'','Nominal Dicairkan':r.paidSnapshot||'','Koreksi Asli':r.originalCorrection||'','Koreksi Sudah Diterapkan':r.appliedCorrection||'','Sisa Koreksi':r.remainingCorrection||'','Status Pencairan':payoutFilterLabel(payoutFilterKey(r)),'Status':r.state};});downloadXlsx(rows,`Laporan_Gabungan_${today()}.xlsx`,'Laporan');}
 function exportBatches(){const rows=[];for(const b of state.batches){for(const i of b.items)rows.push({'Batch':b.batchId,'Waktu':b.createdAt,'Jenis':b.kind,'Jenis Baris':'Pesanan','No. Pesanan':i.orderNo,'Basis':i.basis,'Nominal':i.amount,'Koreksi':'','Total Pencairan':b.payoutAmount||b.baseAmount+b.correctionAmount});for(const c of b.corrections)rows.push({'Batch':b.batchId,'Waktu':b.createdAt,'Jenis':b.kind,'Jenis Baris':'Koreksi','No. Pesanan':c.orderNo,'Basis':'koreksi','Nominal':'','Koreksi':c.appliedAmount,'Total Pencairan':b.payoutAmount||b.baseAmount+b.correctionAmount});}downloadXlsx(rows,`Riwayat_Batch_${today()}.xlsx`,'Batch');}
 function downloadXlsx(rows,filename,sheet){if(!rows.length){flash('Tidak ada data untuk diexport.','error');return;}const ws=XLSX.utils.json_to_sheet(rows),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,sheet);XLSX.writeFile(wb,filename);}
 
@@ -584,7 +614,7 @@ function bind(){
   $('reportSearchMode').addEventListener('change',()=>{const input=$('reportSearch');input.value='';configureReportSearch();renderReport();});
   $('reportReset').addEventListener('click',()=>{
     $('reportDateMode').value='order';$('reportFrom').value='';$('reportTo').value='';$('reportSearchMode').value='all';$('reportSearch').value='';
-    state.reportProducts.clear();state.reportOrderStatuses.clear();configureReportDateMode();configureReportSearch();renderReport();
+    state.reportProducts.clear();state.reportOrderStatuses.clear();state.reportPayoutStatuses.clear();configureReportDateMode();configureReportSearch();renderReport();
   });
   $('exportReportBtn').addEventListener('click',exportReport);
 

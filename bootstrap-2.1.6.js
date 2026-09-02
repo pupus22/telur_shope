@@ -42,7 +42,7 @@ try{
     launched=true;
     try{
       bootMessage('Sesi valid. Memuat aplikasi lokal...','success');
-      const mod=await import('./app-2.1.4.js');
+      const mod=await import('./app-2.1.6.js');
       await mod.startApp({firebaseApp,auth,user,signOut});
       $('bootGate').hidden=true;
       $('appShell').hidden=false;

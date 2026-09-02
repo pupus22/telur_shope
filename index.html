@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#0f172a">
   <title>Shopee Payout Manager · Clean Rebuild</title>
-  <link rel="stylesheet" href="./styles-2.1.4.css">
+  <link rel="stylesheet" href="./styles-2.1.6.css">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -48,7 +48,7 @@
       <header class="topbar">
         <button id="drawerOpen" class="icon-btn mobile-only" type="button">☰</button>
         <div><h1 id="pageTitle">Dashboard</h1><p id="pageSub">Ringkasan master terbaru.</p></div>
-        <div class="topbar-right"><span class="version-pill">v2.1.4</span><span class="local-pill">LOCAL FIRST</span></div>
+        <div class="topbar-right"><span class="version-pill">v2.1.6</span><span class="local-pill">LOCAL FIRST</span></div>
       </header>
 
       <div id="globalMessage" class="global-message" hidden></div>
@@ -91,9 +91,10 @@
           <div class="card-head"><div><h2>Laporan Gabungan</h2><p>Tempat melihat perjalanan lengkap: Order, Estimasi, Final Income, Pencairan, dan Koreksi.</p></div><button id="exportReportBtn" class="btn ghost" type="button">Export Excel</button></div>
           <div class="filters report-filters report-filter-main"><label>Data tanggal<select id="reportDateMode"><option value="order">Order · Tanggal Order</option><option value="final">Final Income · Tanggal Dana Dilepas</option><option value="combined">Final + Estimasi · Tanggal Order</option></select></label><label id="reportFromLabel">Order dari<input id="reportFrom" type="date"></label><label id="reportToLabel">Sampai<input id="reportTo" type="date"></label><label>Cari berdasarkan<select id="reportSearchMode"><option value="all">No. Pesanan / Produk</option><option value="orderNo">No. Pesanan</option><option value="product">Produk</option></select></label><label id="reportSearchLabel">Cari<input id="reportSearch" type="search" placeholder="No pesanan / produk"></label><div class="filter-action"><button id="reportReset" class="btn ghost" type="button">Reset</button></div></div>
           <div id="reportOrderStatusPicker" class="product-picker status-picker"></div>
+          <div id="reportPayoutStatusPicker" class="product-picker status-picker"></div>
           <div id="reportProductPicker" class="product-picker"></div>
           <div class="summary-strip cols-6"><div><span>Pesanan</span><strong id="reportCount">0</strong></div><div><span>Estimasi Aktif</span><strong id="reportEstimateTotal">Rp0</strong></div><div><span>Final Income</span><strong id="reportFinalTotal">Rp0</strong></div><div class="summary-emphasis"><span>Total Final + Estimasi Aktif</span><strong id="reportCombinedTotal">Rp0</strong></div><div><span>Sudah Dicairkan</span><strong id="reportPaidTotal">Rp0</strong></div><div><span>Sisa Koreksi</span><strong id="reportCorrectionTotal">Rp0</strong></div></div>
-          <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Status Order</th><th>Estimasi / Riwayat</th><th class="num">Final Income</th><th>Pencairan</th><th class="num">Koreksi</th><th>Status</th></tr></thead><tbody id="reportBody"></tbody></table></div>
+          <div class="table-wrap large"><table><thead><tr><th>No. Pesanan</th><th>Produk / Variasi</th><th>Status Order</th><th>Estimasi Aktif (Pending)</th><th class="num">Final Income</th><th>Pencairan</th><th class="num">Koreksi</th><th>Status</th></tr></thead><tbody id="reportBody"></tbody></table></div>
         </article>
       </section>
 
@@ -139,7 +140,7 @@
 
       <section id="view-settings" class="view">
         <div class="grid-2">
-          <article class="card sync-card"><div class="card-head"><div><h2>Sinkronisasi Manual</h2><p>Semua upload, estimasi, dan Batch disimpan lokal lebih dulu. Firebase hanya dibaca/ditulis saat tombol di bawah ditekan.</p></div></div><div class="status-list"><div><span>Versi</span><strong>2.1.4</strong></div><div><span>Schema</span><strong>v2</strong></div><div><span>Firebase Auth</span><strong id="settingsFirebase">-</strong></div><div><span>Cache Lokal</span><strong id="settingsCache">-</strong></div><div><span>Perubahan Belum Sinkron</span><strong id="settingsDirtyCount">0 perubahan</strong></div><div><span>Sinkronisasi Terakhir</span><strong id="settingsLastSync">Belum pernah</strong></div><div><span>Mode</span><strong>Local-first · manual sync</strong></div><div><span>Admin UID</span><strong>terkunci</strong></div></div><div id="settingsSyncMessage" class="message info"><b>Firebase tidak disentuh otomatis.</b> Pindah halaman, tutup drawer, atau membuka laporan tetap memakai data lokal browser. Tekan Sinkronkan Sekarang hanya saat ingin mengirim perubahan dan mengambil data server terbaru.</div><button id="syncNowBtn" class="btn success sync-now" type="button">Sinkronkan Sekarang</button></article>
+          <article class="card sync-card"><div class="card-head"><div><h2>Sinkronisasi Manual</h2><p>Semua upload, estimasi, dan Batch disimpan lokal lebih dulu. Firebase hanya dibaca/ditulis saat tombol di bawah ditekan.</p></div></div><div class="status-list"><div><span>Versi</span><strong>2.1.6</strong></div><div><span>Schema</span><strong>v2</strong></div><div><span>Firebase Auth</span><strong id="settingsFirebase">-</strong></div><div><span>Cache Lokal</span><strong id="settingsCache">-</strong></div><div><span>Perubahan Belum Sinkron</span><strong id="settingsDirtyCount">0 perubahan</strong></div><div><span>Sinkronisasi Terakhir</span><strong id="settingsLastSync">Belum pernah</strong></div><div><span>Mode</span><strong>Local-first · manual sync</strong></div><div><span>Admin UID</span><strong>terkunci</strong></div></div><div id="settingsSyncMessage" class="message info"><b>Firebase tidak disentuh otomatis.</b> Pindah halaman, tutup drawer, atau membuka laporan tetap memakai data lokal browser. Tekan Sinkronkan Sekarang hanya saat ingin mengirim perubahan dan mengambil data server terbaru.</div><button id="syncNowBtn" class="btn success sync-now" type="button">Sinkronkan Sekarang</button></article>
           <article class="card danger-card"><div class="card-head"><div><h2>Reset Database</h2><p>Hanya untuk mulai benar-benar kosong. Riwayat Batch juga akan terhapus.</p></div></div><label>Ketik <b>HAPUS SEMUA</b><input id="resetPhrase" type="text" autocomplete="off"></label><button id="resetDbBtn" class="btn danger" type="button">Hapus Semua Data Aplikasi</button><div id="settingsMessage" class="message warning">Jangan gunakan reset jika masih membutuhkan riwayat Batch.</div></article>
         </div>
       </section>
@@ -154,6 +155,6 @@
 
   <dialog id="batchDetailDialog" class="modal"><form method="dialog" class="modal-shell"><header><div><h2 id="batchDetailTitle">Detail Batch</h2><p id="batchDetailMeta"></p></div><button class="icon-btn" value="cancel">×</button></header><div class="modal-body" id="batchDetailBody"></div><footer><button class="btn primary" value="cancel">Tutup</button></footer></form></dialog>
 
-  <script type="module" src="./bootstrap-2.1.4.js"></script>
+  <script type="module" src="./bootstrap-2.1.6.js"></script>
 </body>
 </html>
