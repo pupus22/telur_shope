@@ -1,12 +1,10 @@
-# QA v2.1.6
+# QA v2.1.7
 
-- [x] Final Income ada -> Estimasi/Riwayat tidak tampil di Laporan Gabungan.
-- [x] Final Income ada -> Status Pending HTML tidak ikut Export Laporan Gabungan.
-- [x] Belum ada Final Income -> HTML/manual tetap tampil sebagai estimasi.
-- [x] Snapshot Batch Estimasi dan koreksi tidak dihapus.
-- [x] File asset menggunakan nama v2.1.6 untuk menghindari cache versi lama.
-- [x] Syntax semua JS diperiksa sebagai ES module.
-
-
-- Filter Status Pencairan: kosong=semua; Pending/Siap Dicairkan/Sudah Dicairkan bersifat OR antar-checkbox dan AND dengan filter tanggal/status order/produk/pencarian.
-- Sudah Dicairkan ditentukan dari snapshot Batch (`paidBatchId`), termasuk Batch Estimasi yang masih menunggu Final Excel.
+- [x] Syntax seluruh JS valid.
+- [x] Riwayat hanya menampilkan batch `status=active`.
+- [x] Tombol Hapus Batch tersedia untuk Estimasi dan Final.
+- [x] Penghapusan Estimasi melepas `payoutLock` dan tidak menghidupkan estimasi lama.
+- [x] Penghapusan Final melepas `payoutBatchId` / `batchId` Income.
+- [x] Batch tombstone tetap tersinkron melalui manual sync.
+- [x] Batch terhapus tidak masuk export/rekonsiliasi/payout map.
+- [x] Dependensi koreksi antar-batch diblokir agar pembukuan tidak rusak.
